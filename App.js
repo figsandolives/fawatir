@@ -1,18 +1,11 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Home from './Home';
-import Admin from './Admin';
-import Cashier from './Cashier';
+const App = () => {
+  const [page, setPage] = React.useState('home');
 
-function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="/cashier" element={<Cashier />} />
-      </Routes>
-    </Router>
+    <div>
+      {page === 'home' && <Home setPage={setPage} />}
+      {page === 'admin' && <Admin setPage={setPage} />}
+      {page === 'cashier' && <Cashier setPage={setPage} />}
+    </div>
   );
-}
-export default App;
+};
