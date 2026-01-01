@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>بوابة التين والزيتون</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .portal-card { transition: transform 0.3s; cursor: pointer; border: 2px solid #e2e8f0; }
+        .portal-card:hover { transform: scale(1.05); border-color: #1e293b; }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col items-center justify-center min-h-screen">
+    <img src="Logo.png" alt="Logo" class="w-64 mb-12">
+    <div class="space-y-6 w-full max-w-xs">
+        <button onclick="window.location.href='cashier.html'" class="portal-card w-full bg-white p-6 rounded-xl shadow-lg text-2xl font-bold text-gray-800 flex flex-col items-center">
+            <span>🛒</span>
+            <span>الكاشير</span>
+        </button>
+        <button onclick="enterAdmin()" class="portal-card w-full bg-white p-6 rounded-xl shadow-lg text-2xl font-bold text-gray-800 flex flex-col items-center">
+            <span>📊</span>
+            <span>المحاسبة والمخازن</span>
+        </button>
+    </div>
+    <script>
+        function enterAdmin() {
+            const pass = prompt("أدخل كلمة المرور:");
+            if(pass === "5466") window.location.href='admin.html';
+            else alert("كلمة المرور خاطئة");
+        }
+    </script>
+</body>
+</html>
