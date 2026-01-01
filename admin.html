@@ -2,120 +2,147 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>المحاسبة والمخازن - التين والزيتون</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .sidebar-item { cursor: pointer; transition: 0.3s; }
-        .sidebar-item:hover { background-color: #1e293b; }
-        .active-tab { background-color: #1e293b; border-right: 4px solid #3b82f6; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .sidebar-item { @apply p-4 hover:bg-slate-700 cursor-pointer flex items-center gap-3 transition-all; }
+        .active-tab { @apply bg-slate-800 border-r-4 border-blue-500; }
         .hidden { display: none; }
     </style>
 </head>
-<body class="bg-gray-100 flex min-h-screen">
+<body class="bg-gray-50 flex min-h-screen overflow-hidden">
 
-    <div class="w-64 bg-gray-900 text-white flex flex-col">
-        <div class="p-6 text-2xl font-bold border-b border-gray-800 text-center">الإدارة</div>
-        <nav class="mt-4 flex-1">
-            <div onclick="showTab('orders')" id="btn-orders" class="sidebar-item p-4 active-tab">📦 الطلبات</div>
-            <div onclick="showTab('customers')" id="btn-customers" class="sidebar-item p-4">👥 العملاء</div>
-            <div onclick="showTab('products')" id="btn-products" class="sidebar-item p-4">🍎 المنتجات</div>
-            <div onclick="showTab('categories')" id="btn-categories" class="sidebar-item p-4">📁 الأقسام</div>
+    <div class="w-72 bg-slate-900 text-white flex flex-col shadow-xl">
+        <div class="p-8 text-center border-b border-slate-800">
+            <h1 class="text-xl font-bold tracking-wider">لوحة التحكم</h1>
+        </div>
+        <nav class="flex-1 mt-6">
+            <div onclick="switchTab('orders')" id="btn-orders" class="sidebar-item active-tab">
+                <span>📦</span> الطلبات
+            </div>
+            <div onclick="switchTab('customers')" id="btn-customers" class="sidebar-item">
+                <span>👥</span> العملاء
+            </div>
+            <div onclick="switchTab('products')" id="btn-products" class="sidebar-item">
+                <span>🍎</span> المنتجات
+            </div>
+            <div onclick="switchTab('categories')" id="btn-categories" class="sidebar-item">
+                <span>📁</span> الأقسام
+            </div>
         </nav>
-        <button onclick="window.location.href='index.html'" class="p-4 bg-red-900 hover:bg-red-800 text-sm">تسجيل الخروج</button>
+        <div class="p-4 border-t border-slate-800">
+            <button onclick="window.location.href='index.html'" class="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white p-2 rounded transition-colors text-sm">
+                تسجيل الخروج
+            </button>
+        </div>
     </div>
 
-    <div class="flex-1 p-8">
-        <div class="flex justify-between items-center mb-6">
-            <h1 id="page-title" class="text-3xl font-bold text-gray-800">الطلبات</h1>
-            <button class="bg-white border px-4 py-2 rounded shadow hover:bg-gray-50">English / عربي</button>
-        </div>
+    <div class="flex-1 flex flex-col overflow-y-auto">
+        <header class="bg-white shadow-sm p-6 flex justify-between items-center">
+            <h2 id="page-title" class="text-2xl font-bold text-slate-800">إدارة الطلبات</h2>
+            <div class="flex gap-4">
+                <button class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">English</button>
+            </div>
+        </header>
 
-        <div class="bg-white rounded-xl shadow-lg p-6 min-h-[500px]">
-            <div id="section-orders">
-                <table class="w-full text-right border-collapse">
-                    <thead>
-                        <tr class="bg-gray-100 border-b">
-                            <th class="p-3">رقم الفاتورة</th>
-                            <th class="p-3">الزبون</th>
-                            <th class="p-3">المبلغ</th>
-                            <th class="p-3">الحالة</th>
-                            <th class="p-3">إجراء</th>
-                        </tr>
-                    </thead>
-                    <tbody id="orders-list">
+        <main class="p-8">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                
+                <div id="section-orders">
+                    <div class="flex justify-between mb-6">
+                        <input type="text" placeholder="بحث في الطلبات..." class="border p-2 rounded-lg w-64 text-sm">
+                    </div>
+                    <table class="w-full text-right border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50 border-b text-gray-600 text-sm">
+                                <th class="p-4">رقم الفاتورة</th>
+                                <th class="p-4">الزبون</th>
+                                <th class="p-4">التاريخ</th>
+                                <th class="p-4">الإجمالي</th>
+                                <th class="p-4">إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-list">
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-4">#1001</td>
+                                <td class="p-4">أحمد المحمد</td>
+                                <td class="p-4">2026-01-01</td>
+                                <td class="p-4 font-bold">12.500 د.ك</td>
+                                <td class="p-4">
+                                    <button class="text-blue-600 hover:underline">تعديل</button>
+                                </td>
+                            </tr>
                         </tbody>
-                </table>
-            </div>
-
-            <div id="section-products" class="hidden">
-                <div class="flex justify-between mb-4">
-                    <button onclick="openProductModal()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">+ إضافة منتج جديد</button>
+                    </table>
                 </div>
-                <p class="text-gray-500 text-center mt-10">جاري تحميل قائمة المنتجات...</p>
+
+                <div id="section-products" class="hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-bold">قائمة الأصناف</h3>
+                        <button onclick="openModal()" class="bg-blue-600 text-white px-5 py-2 rounded-lg shadow-lg hover:bg-blue-700 transition-all">
+                            + إضافة منتج
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="products-grid">
+                        </div>
+                </div>
+
             </div>
-        </div>
+        </main>
     </div>
 
-    <div id="productModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
-        <div class="bg-white p-8 rounded-xl w-full max-w-lg shadow-2xl">
-            <h2 class="text-2xl font-bold mb-4">إضافة منتج جديد</h2>
+    <div id="modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl">
+            <h3 class="text-xl font-bold mb-6 border-b pb-4">إضافة منتج جديد</h3>
             <div class="space-y-4">
-                <input type="text" id="pNameAr" placeholder="اسم المنتج بالعربي" class="w-full border p-2 rounded">
-                <input type="text" id="pNameEn" placeholder="اسم المنتج بالانجليزي" class="w-full border p-2 rounded text-left">
+                <input type="text" id="pNameAr" placeholder="اسم المنتج (عربي)" class="w-full border p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                <input type="text" id="pNameEn" placeholder="Product Name (English)" class="w-full border p-3 rounded-xl text-left outline-none">
                 <div class="flex gap-4">
-                    <input type="text" oninput="convertToEn(this)" id="pPrice" placeholder="سعر البيع" class="w-1/2 border p-2 rounded">
-                    <select id="pUnit" class="w-1/2 border p-2 rounded bg-white">
+                    <input type="text" oninput="fixNumbers(this)" placeholder="سعر البيع" class="w-1/2 border p-3 rounded-xl outline-none">
+                    <select class="w-1/2 border p-3 rounded-xl bg-white outline-none">
                         <option>حبة</option>
                         <option>كيلو</option>
-                        <option>جرام</option>
                         <option>لتر</option>
-                        <option>ربطة</option>
-                        <option>كرتون</option>
-                        <option>تنكة</option>
                     </select>
                 </div>
-                <input type="text" oninput="convertToEn(this)" id="pQty" placeholder="الكمية" class="w-full border p-2 rounded">
-                <div class="flex justify-end gap-2 mt-6">
-                    <button onclick="closeProductModal()" class="px-4 py-2 bg-gray-200 rounded">إلغاء</button>
-                    <button class="px-4 py-2 bg-blue-600 text-white rounded">إضافة المنتج</button>
+                <input type="text" oninput="fixNumbers(this)" placeholder="الكمية" class="w-full border p-3 rounded-xl outline-none">
+                <div class="flex gap-3 mt-8">
+                    <button onclick="closeModal()" class="flex-1 py-3 bg-gray-100 rounded-xl font-bold">إلغاء</button>
+                    <button class="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700">حفظ</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // دالة تبديل التبويبات (Tabs) - تم إصلاح تعريفها لتكون متاحة فوراً
-        function showTab(tabId) {
-            // إخفاء كل السكاشن
+        // دالة تبديل التبويبات بدون أخطاء
+        function switchTab(tabId) {
+            // إخفاء الكل
             document.getElementById('section-orders').classList.add('hidden');
             document.getElementById('section-products').classList.add('hidden');
             
-            // إزالة التنسيق النشط عن الأزرار
+            // تحديث الأزرار
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active-tab'));
+            document.getElementById('btn-' + tabId).classList.add('active-tab');
+            
+            // إظهار التبويب المختار
+            const target = document.getElementById('section-' + tabId);
+            if(target) target.classList.remove('hidden');
 
-            // إظهار السكشن المطلوب
-            if(tabId === 'orders') {
-                document.getElementById('section-orders').classList.remove('hidden');
-                document.getElementById('btn-orders').classList.add('active-tab');
-                document.getElementById('page-title').innerText = "الطلبات";
-            } else if(tabId === 'products') {
-                document.getElementById('section-products').classList.remove('hidden');
-                document.getElementById('btn-products').classList.add('active-tab');
-                document.getElementById('page-title').innerText = "المنتجات";
-            }
+            // تغيير العنوان
+            const titles = { 'orders': 'إدارة الطلبات', 'customers': 'سجل العملاء', 'products': 'المخازن والمنتجات', 'categories': 'الأقسام الرئيسية' };
+            document.getElementById('page-title').innerText = titles[tabId] || 'الإدارة';
         }
 
-        function openProductModal() { document.getElementById('productModal').classList.remove('hidden'); }
-        function closeProductModal() { document.getElementById('productModal').classList.add('hidden'); }
+        function openModal() { document.getElementById('modal').classList.remove('hidden'); }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
 
-        // تحويل الأرقام العربية إلى إنجليزية تلقائياً
-        function convertToEn(el) {
+        // تحويل الأرقام العربية فوراً
+        function fixNumbers(el) {
             const ar = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
-            let val = el.value;
-            for (let i = 0; i < 10; i++) {
-                val = val.replace(ar[i], i);
-            }
-            el.value = val;
+            for (let i = 0; i < 10; i++) el.value = el.value.replace(ar[i], i);
         }
     </script>
 </body>
