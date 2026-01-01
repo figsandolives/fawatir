@@ -4,16 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام التين والزيتون</title>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-    
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.min.js](https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-app.min.js)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-firestore.min.js](https://cdnjs.cloudflare.com/ajax/libs/firebase/8.10.1/firebase-firestore.min.js)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js](https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js](https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js](https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js)"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap');
+        @import url('[https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap](https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap)');
         body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; margin: 0; }
     </style>
 </head>
@@ -27,15 +25,11 @@
     <script type="text/babel" src="App.js"></script>
 
     <script type="text/babel">
-        // التأكد من تحميل المكتبات قبل تشغيل التطبيق
-        window.onload = () => {
-            if (typeof React !== 'undefined' && typeof ReactDOM !== 'undefined') {
-                const root = ReactDOM.createRoot(document.getElementById('root'));
-                root.render(<App />);
-            } else {
-                document.getElementById('root').innerHTML = "<div style='text-align:center; padding:50px;'>جاري تحميل النظام... يرجى التأكد من الاتصال بالإنترنت</div>";
-            }
-        };
+        // تشغيل التطبيق بعد تحميل كل شيء
+        window.addEventListener('load', () => {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<App />);
+        });
     </script>
 </body>
 </html>
