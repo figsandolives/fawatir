@@ -2,55 +2,115 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>نظام الكاشير</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>كاشير التين والزيتون</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
     <style>
-        @media print { .no-print { display: none; } #receipt { display: block; } }
+        body { background-color: #f3f4f6; font-family: sans-serif; }
+        .product-card { cursor: pointer; transition: 0.2s; border: 1px solid #e5e7eb; }
+        .product-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .hidden { display: none; }
+        @media print { .no-print { display: none; } #receipt { display: block !important; } }
         #receipt { display: none; }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="no-print p-4">
-        <div class="flex justify-between mb-6">
-            <button onclick="openNewInvoice()" class="bg-green-600 text-white px-6 py-2 rounded-lg font-bold">+ فاتورة جديدة</button>
-            <button class="bg-blue-600 text-white px-6 py-2 rounded-lg">الفواتير المفتوحة</button>
+<body class="min-h-screen">
+
+    <div class="no-print p-6">
+        <div class="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm">
+            <div class="flex gap-4">
+                <button onclick="openNewInvoice()" class="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700">
+                    + فاتورة جديدة
+                </button>
+                <button class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
+                    الفواتير المفتوحة
+                </button>
+            </div>
+            <div class="text-xl font-bold text-gray-700">نظام الكاشير الذكي</div>
         </div>
 
-        <div class="grid grid-cols-12 gap-4">
-            <div class="col-span-8 bg-white p-4 rounded shadow min-h-[500px]">
-                <input type="text" placeholder="بحث عن منتج..." class="w-full p-2 border rounded mb-4">
-                <div id="grid-items" class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-12 gap-6">
+            <div class="col-span-8 bg-white p-6 rounded-xl shadow-sm min-h-[600px]">
+                <div class="flex gap-2 mb-6">
+                    <input type="text" placeholder="بحث عن منتج..." class="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
+                    <button class="bg-gray-100 px-4 rounded-xl">🔍</button>
+                </div>
+                
+                <div id="items-grid" class="grid grid-cols-4 gap-4">
+                    <div class="product-card bg-gray-50 p-4 rounded-xl text-center font-bold">المخبوزات</div>
+                    <div class="product-card bg-gray-50 p-4 rounded-xl text-center font-bold">المقبلات</div>
+                </div>
+            </div>
+
+            <div class="col-span-4 bg-gray-800 text-white p-6 rounded-xl shadow-xl flex flex-col">
+                <h3 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2">الطلب الحالي</h3>
+                <div id="cart-items" class="flex-1 space-y-4 overflow-y-auto">
+                    <p class="text-center text-gray-500 mt-10">لا توجد أصناف مضافة</p>
+                </div>
+                
+                <div class="mt-6 pt-4 border-t border-gray-700">
+                    <div class="flex justify-between text-lg mb-4">
+                        <span>الإجمالي:</span>
+                        <span id="total-price" class="font-bold text-green-400">0.000 د.ك</span>
                     </div>
-            </div>
-
-            <div class="col-span-4 bg-slate-800 text-white p-4 rounded shadow flex flex-col justify-between">
-                <div id="cart-list" class="space-y-3">
-                    <p class="text-center text-gray-400">الفاتورة فارغة</p>
-                </div>
-                <div class="border-t border-slate-600 pt-4">
-                    <button id="next-btn" disabled class="w-full py-3 bg-gray-500 rounded font-bold">التالي</button>
+                    <button id="next-btn" disabled class="w-full py-4 bg-gray-600 rounded-xl font-bold text-lg cursor-not-allowed">
+                        التالي
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="receipt" class="p-8 bg-white w-[210mm] mx-auto text-black">
-        <div class="flex justify-between items-start border-b-2 pb-4 mb-4">
-            <div class="w-1/3 text-xs">
-                <h2 class="font-bold text-lg">مخبز التين والزيتون</h2>
-                <p>اليرموك ق٢ شارع ٢</p>
-                <p>☎️ 22085889 / 65162277</p>
-                <p>@figsolives.kw</p>
+    <div id="invoice-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white w-full h-full p-10 overflow-y-auto relative">
+            <button onclick="closeInvoice()" class="absolute top-5 left-5 text-3xl font-bold text-red-600">✕</button>
+            <h2 class="text-3xl font-bold mb-8 text-center">تفاصيل الفاتورة</h2>
             </div>
-            <img src="Logo.png" class="w-20">
-            <div class="w-1/3 text-left text-xs">
-                <h2 class="font-bold text-lg">مطعم التين الطبيعي</h2>
-                <p>أبو الحصانية ، مول ٣٠</p>
-                <p>☎️ 22085886 / 99176512</p>
-                <p>@natural_figs</p>
+    </div>
+
+    <div id="receipt" class="p-10 text-black bg-white">
+        <div class="flex justify-between items-center mb-6">
+            <div class="text-right">
+                <h2 class="font-bold text-xl">مخبز التين والزيتون</h2>
+                <p class="text-sm">☎️ 22085889</p>
+            </div>
+            <div class="text-center font-bold text-2xl">فاتورة بيع</div>
+            <div class="text-left">
+                <h2 class="font-bold text-xl">مطعم التين الطبيعي</h2>
+                <p class="text-sm">☎️ 22085886</p>
             </div>
         </div>
-        <div id="receipt-details"></div>
+        <hr class="border-black mb-4">
+        <div id="print-content"></div>
     </div>
+
+    <script>
+        // تعريف الدوال في النطاق العام لضمان عملها عند الضغط على الأزرار
+        function openNewInvoice() {
+            document.getElementById('invoice-modal').classList.remove('hidden');
+            console.log("Invoice Opened");
+        }
+
+        function closeInvoice() {
+            // عند الإغلاق يتم الحفظ في الفواتير المفتوحة كما طلبت
+            document.getElementById('invoice-modal').classList.add('hidden');
+            alert("تم حفظ الفاتورة في الفواتير المفتوحة");
+        }
+
+        function fixNumbers(el) {
+            const ar = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
+            for (let i = 0; i < 10; i++) el.value = el.value.replace(ar[i], i);
+        }
+
+        // منطق تفعيل زر التالي
+        function updateCart() {
+            const cartItems = document.getElementById('cart-items').children;
+            const nextBtn = document.getElementById('next-btn');
+            if(cartItems.length > 1) { // إذا كان هناك أكثر من رسالة "الفارغة"
+                nextBtn.disabled = false;
+                nextBtn.classList.remove('bg-gray-600', 'cursor-not-allowed');
+                nextBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            }
+        }
+    </script>
 </body>
 </html>
