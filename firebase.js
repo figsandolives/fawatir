@@ -1,6 +1,4 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-
+// إعداد فايربيس للمتصفح مباشرة
 const firebaseConfig = {
   apiKey: "AIzaSyAxjBBtAnpThJoliccuoq0NNIABGPv1dJg",
   authDomain: "fawatir-b6119.firebaseapp.com",
@@ -12,5 +10,6 @@ const firebaseConfig = {
   measurementId: "G-N3WQQC8XY5"
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// تهيئة الخدمات
+const app = firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore(app);
