@@ -365,7 +365,7 @@ const translations = {
     add: 'إضافة',
     edit: 'تعديل',
     delete: 'حذف',
-    save: 'حفظ',
+    save: 'حف����',
     cancel: 'إلغاء',
     search: 'بحث',
     close: 'إغلاق',
@@ -498,7 +498,7 @@ const areas = [
   { name: 'النزهة', price: 1 },
   { name: 'الدعية', price: 1 },
   { name: 'المنصورية', price: 1 },
-  { name: 'قرطبة', price: 1 },
+  { name: 'قرط���ة', price: 1 },
   { name: 'الشامية', price: 1 },
   { name: 'الرميثية', price: 1 },
   { name: 'عبدالله السالم', price: 1 },
@@ -525,7 +525,7 @@ const areas = [
   { name: 'الكويت', price: 2 },
   { name: 'اشبيليا', price: 2 },
   { name: 'السالمية', price: 2 },
-  { name: 'شرق', price: 2 },
+  { name: 'شر��', price: 2 },
   { name: 'الرحاب', price: 2 },
   { name: 'المرقاب', price: 2 },
   { name: 'ص����اح ا��سالم', price: 2 },
@@ -1203,7 +1203,7 @@ function renderDevicesPage() {
               <tr>
                 <th class="px-6 py-4 text-right">${translate('cashierName')}</th>
                 <th class="px-6 py-4 text-right">${translate('cashierCode')}</th>
-                <th class="px-6 py-4 text-center">الإجراءات</th>
+                <th class="px-6 py-4 text-center">الإجراء��ت</th>
               </tr>
             </thead>
             <tbody>
@@ -2373,9 +2373,12 @@ async function finalizeInvoice(customerData, paymentMethod) {
   }
 }
 
-function selectPaymentMethod(paymentMethod, invoiceDataStr) {
-  const invoiceData = JSON.parse(invoiceDataStr.replace(/&quot;/g, '"'));
-  finalizeInvoice(invoiceData, paymentMethod);
+function selectPaymentMethod(paymentMethod) {
+  if (!pendingInvoiceData) {
+    showToast('خطأ: لا توجد بيانات فاتورة');
+    return;
+  }
+  finalizeInvoice(pendingInvoiceData, paymentMethod);
 }
 
 function backToSelectCustomer() {
@@ -2442,7 +2445,7 @@ function printInvoice(invoice) {
         ${invoice.delivery_type === 'delivery' ? `
           <strong>المنطقة:</strong> ${invoice.area}<br>
           <strong>العنوان:</strong> ${invoice.address_detail}<br>
-        ` : '<strong>النوع:</strong> استلام<br>'}
+        ` : '<strong>ا��نوع:</strong> استلام<br>'}
         <div style="text-align: center;">
           <span class="payment-badge">طريقة الدفع: ${paymentMethodText}</span>
         </div>
@@ -2752,7 +2755,7 @@ async function confirmDeleteCashier(cashierId) {
   
   closeModal();
   render();
-  showToast('تم ح��ف الكاشير بنجاح');
+  showToast('تم ح���ف الكاشير بنجاح');
 }
 
 async function deleteProduct(productId) {
@@ -2824,7 +2827,7 @@ async function deleteInvoice(invoiceId) {
           نعم، احذف
         </button>
         <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-semibold">
-          إلغاء
+          ��لغاء
         </button>
       </div>
     </div>
@@ -3041,5 +3044,5 @@ document.addEventListener('DOMContentLoaded', () => {
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b83361295de8308',t:'MTc2NzQ1MDgwNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b834022232f2e9b',t:'MTc2NzQ1MTIxOC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
