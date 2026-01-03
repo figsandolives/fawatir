@@ -146,6 +146,8 @@ let selectedProducts = [];
 let deviceId = null;
 let deviceBranch = null;
 let currentCashier = null;
+let currentCategoryView = null;
+let pendingInvoiceData = null;
 
 // Translations
 const translations = {
@@ -175,7 +177,7 @@ const translations = {
     kwd: 'د.ك',
     addProduct: 'إضافة منتج',
     addCategory: 'إضافة قسم',
-    addSubCategory: 'إضافة قسم فرع��',
+    addSubCategory: 'إضافة قسم فرعي',
     addCustomer: 'إضافة عميل',
     productNameAr: 'اسم المنتج بالعربي',
     productNameEn: 'اسم المنتج بالإنجليزي',
@@ -193,7 +195,7 @@ const translations = {
     date: 'التاريخ',
     branch: 'الفرع',
     cashierName: 'اسم الكاشير',
-    mainBranch: 'الفرع الرئيسي',
+    mainBranch: 'الفرع ال��ئيسي',
     abuHasaniya: 'أبو الحصانية',
     yarmouk: 'اليرموك',
     selectBranch: 'اختر الفرع',
@@ -207,7 +209,7 @@ const translations = {
     allBranches: 'جميع الفروع',
     allCashiers: 'جميع الكاشيرين',
     from: 'من',
-    to: 'إلى',
+    to: 'إل��',
     totalRevenue: 'إجمالي الإيرادات'
   },
   en: {
@@ -290,7 +292,7 @@ const areas = [
   { name: 'كيفان', price: 1 },
   { name: 'الروضة', price: 1 },
   { name: 'العديلية', price: 1 },
-  { name: 'الخا��دية', price: 1 },
+  { name: 'الخالدية', price: 1 },
   { name: 'النزهة', price: 1 },
   { name: 'الدعية', price: 1 },
   { name: 'المنصورية', price: 1 },
@@ -492,6 +494,8 @@ function render() {
     app.innerHTML = renderNewInvoice();
   } else if (currentScreen === 'selectCustomer') {
     app.innerHTML = renderSelectCustomer();
+  } else if (currentScreen === 'paymentMethod') {
+    app.innerHTML = renderPaymentMethod(pendingInvoiceData);
   }
   
   attachEventListeners();
@@ -695,6 +699,9 @@ function renderProductsPage() {
                   <td class="px-6 py-4">${product.unit}</td>
                   <td class="px-6 py-4">${product.quantity}</td>
                   <td class="px-6 py-4 text-center">
+                    <button onclick="showEditProductModal('${product.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 ml-2">
+                      ${translate('edit')}
+                    </button>
                     <button onclick="deleteProduct('${product.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
                       ${translate('delete')}
                     </button>
@@ -710,6 +717,10 @@ function renderProductsPage() {
 }
 
 function renderCategoriesPage() {
+  if (currentCategoryView) {
+    return renderCategoryDetail(currentCategoryView);
+  }
+  
   const categories = allRecords.filter(r => r.type === 'category' && !r.parent_id);
   
   return `
@@ -727,31 +738,128 @@ function renderCategoriesPage() {
           const subCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === category.id);
           
           return `
-            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
+            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="openCategoryDetail('${category.id}')">
               <div class="flex justify-between items-start mb-2">
                 <h3 class="text-xl font-bold text-gray-800">${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
-                <button onclick="showEditCategoryModal('${category.id}')" class="text-blue-600 hover:text-blue-800">
+                <button onclick="event.stopPropagation(); showEditCategoryModal('${category.id}')" class="text-blue-600 hover:text-blue-800">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                   </svg>
                 </button>
               </div>
               <p class="text-gray-600 mb-1">${productIds.length} ${currentLang === 'ar' ? 'منتج' : 'products'}</p>
-              <p class="text-gray-500 mb-3">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
-              <div class="flex gap-2">
-                <button onclick="manageProductsInCategory('${category.id}')" class="flex-1 px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200">
-                  إدارة المنتجات
-                </button>
-                <button onclick="showAddSubCategoryModal('${category.id}')" class="flex-1 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">
-                  قسم فرعي
-                </button>
-              </div>
+              <p class="text-gray-500">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
             </div>
           `;
         }).join('')}
       </div>
     </div>
   `;
+}
+
+function renderCategoryDetail(categoryId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) {
+    currentCategoryView = null;
+    return renderCategoriesPage();
+  }
+  
+  const productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  const products = allRecords.filter(r => r.type === 'product' && productIds.includes(r.id));
+  const subCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === category.id);
+  
+  return `
+    <div class="p-8">
+      <div class="mb-6">
+        <button onclick="closeCategoryDetail()" class="text-purple-600 hover:underline mb-4">
+          ← ${currentLang === 'ar' ? 'رجوع للأقسام' : 'Back to Categories'}
+        </button>
+        <h1 class="text-3xl font-bold text-gray-800">${currentLang === 'ar' ? category.name_ar : category.name_en}</h1>
+      </div>
+      
+      <div class="flex gap-4 mb-6">
+        <button onclick="showAddProductToCategoryModal('${categoryId}')" class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">
+          ${currentLang === 'ar' ? 'إضافة منتج' : 'Add Product'}
+        </button>
+        <button onclick="showAddSubCategoryModal('${categoryId}')" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          ${currentLang === 'ar' ? 'إضا��ة قسم فرعي' : 'Add Sub-Category'}
+        </button>
+      </div>
+      
+      ${subCategories.length > 0 ? `
+        <div class="mb-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-4">${currentLang === 'ar' ? 'الأقسام الفرعية' : 'Sub-Categories'}</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${subCategories.map(sub => {
+              const subProductIds = sub.product_ids ? sub.product_ids.split(',').filter(id => id) : [];
+              const subSubCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === sub.id);
+              
+              return `
+                <div class="bg-blue-50 rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="openCategoryDetail('${sub.id}')">
+                  <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-xl font-bold text-gray-800">${currentLang === 'ar' ? sub.name_ar : sub.name_en}</h3>
+                    <button onclick="event.stopPropagation(); showEditCategoryModal('${sub.id}')" class="text-blue-600 hover:text-blue-800">
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <p class="text-gray-600 mb-1">${subProductIds.length} ${currentLang === 'ar' ? 'منتج' : 'products'}</p>
+                  <p class="text-gray-500">${subSubCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
+      
+      ${products.length > 0 ? `
+        <div>
+          <h2 class="text-2xl font-bold text-gray-800 mb-4">${currentLang === 'ar' ? 'المنتجات' : 'Products'}</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${products.map(product => `
+              <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
+                <div class="flex justify-between items-start mb-2">
+                  <h3 class="text-lg font-bold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</h3>
+                  <div class="flex gap-2">
+                    <button onclick="showEditProductModal('${product.id}')" class="text-blue-600 hover:text-blue-800">
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                      </svg>
+                    </button>
+                    <button onclick="removeProductFromCategory('${categoryId}', '${product.id}')" class="text-red-600 hover:text-red-800">
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="text-gray-600 mb-1">${product.price} ${translate('kwd')}</p>
+                <p class="text-sm text-gray-500">${product.quantity} ${product.unit}</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : `
+        <div class="text-center py-12 text-gray-400">
+          <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+          </svg>
+          <p>${currentLang === 'ar' ? 'لا توجد منتجات في هذا القسم' : 'No products in this category'}</p>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function openCategoryDetail(categoryId) {
+  currentCategoryView = categoryId;
+  render();
+}
+
+function closeCategoryDetail() {
+  currentCategoryView = null;
+  render();
 }
 
 function renderDevicesPage() {
@@ -777,7 +885,7 @@ function renderDevicesPage() {
             <option value="yarmouk">${translate('yarmouk')}</option>
           </select>
           <button onclick="setCurrentDeviceBranch()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            تعريف الجهاز
+            تع��يف الجهاز
           </button>
         ` : `
           <button onclick="clearCurrentDeviceBranch()" class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700">
@@ -1067,11 +1175,84 @@ function renderSelectCustomer() {
   `;
 }
 
+function renderPaymentMethod(invoiceData) {
+  const subtotal = selectedProducts.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  const deliveryPrice = invoiceData.delivery_type === 'delivery' ? (areas.find(a => a.name === invoiceData.area)?.price || 0) : 0;
+  const total = subtotal + deliveryPrice;
+  
+  return `
+    <div class="h-full bg-gray-50 p-8 flex items-center justify-center" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="max-w-2xl w-full">
+        <div class="bg-white rounded-xl shadow-2xl p-8">
+          <div class="text-center mb-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-2">ملخص الفاتورة</h2>
+            <p class="text-gray-600">${invoiceData.customer_name}</p>
+          </div>
+          
+          <div class="bg-gray-50 rounded-lg p-6 mb-8">
+            <div class="space-y-3">
+              ${selectedProducts.map(item => `
+                <div class="flex justify-between text-gray-700">
+                  <span>${currentLang === 'ar' ? item.name_ar : item.name_en} × ${item.qty}</span>
+                  <span>${(item.price * item.qty).toFixed(3)} د.ك</span>
+                </div>
+              `).join('')}
+              
+              <div class="border-t border-gray-300 pt-3 mt-3">
+                <div class="flex justify-between text-gray-700 mb-2">
+                  <span>المجموع الفرعي:</span>
+                  <span>${subtotal.toFixed(3)} د.ك</span>
+                </div>
+                ${deliveryPrice > 0 ? `
+                  <div class="flex justify-between text-gray-700 mb-2">
+                    <span>رسوم التوصيل:</span>
+                    <span>${deliveryPrice.toFixed(3)} د.ك</span>
+                  </div>
+                ` : ''}
+              </div>
+              
+              <div class="border-t-2 border-gray-400 pt-3 mt-3">
+                <div class="flex justify-between text-2xl font-bold text-purple-600">
+                  <span>الإجمالي:</span>
+                  <span>${total.toFixed(3)} د.ك</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mb-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">اختر طريقة الدفع</h3>
+            <div class="grid grid-cols-2 gap-6">
+              <button onclick="selectPaymentMethod('cash', ${JSON.stringify(invoiceData).replace(/"/g, '&quot;')})" class="p-8 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
+                <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                </svg>
+                <span class="text-2xl font-bold">كاش</span>
+              </button>
+              
+              <button onclick="selectPaymentMethod('online', ${JSON.stringify(invoiceData).replace(/"/g, '&quot;')})" class="p-8 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
+                <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                </svg>
+                <span class="text-2xl font-bold">أونلاين</span>
+              </button>
+            </div>
+          </div>
+          
+          <button onclick="backToSelectCustomer()" class="w-full px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+            رجوع
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function getBranchName(branch) {
   const branches = {
     main: currentLang === 'ar' ? 'الفرع الرئيسي' : 'Main Branch',
     abu_hasaniya: currentLang === 'ar' ? 'أبو الحصانية' : 'Abu Hasaniya',
-    yarmouk: currentLang === 'ar' ? 'اليرموك' : 'Yarmouk'
+    yarmouk: currentLang === 'ar' ? 'ال��رموك' : 'Yarmouk'
   };
   return branches[branch] || branch;
 }
@@ -1155,6 +1336,7 @@ function loginCashier() {
 function logout() {
   currentScreen = 'home';
   currentCashier = null;
+  currentCategoryView = null;
   render();
 }
 
@@ -1165,6 +1347,7 @@ function backToHome() {
 
 function changePage(page) {
   currentPage = page;
+  currentCategoryView = null;
   render();
 }
 
@@ -1276,6 +1459,97 @@ async function saveProduct() {
     showToast('تم إضافة المنتج بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة المنتج');
+  }
+}
+
+function showEditProductModal(productId) {
+  const product = allRecords.find(r => r.id === productId);
+  if (!product) return;
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">تعديل المنتج</h3>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('productNameAr')}</label>
+          <input type="text" id="editProductNameAr" value="${product.name_ar}" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('productNameEn')}</label>
+          <input type="text" id="editProductNameEn" value="${product.name_en}" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('salePrice')}</label>
+          <input type="text" id="editProductPrice" value="${product.price}" class="number-input w-full px-4 py-3 border rounded-lg">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('unit')}</label>
+          <select id="editProductUnit" class="w-full px-4 py-3 border rounded-lg">
+            ${units.map(unit => `<option value="${unit}" ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('quantity')}</label>
+          <input type="text" id="editProductQuantity" value="${product.quantity}" class="number-input w-full px-4 py-3 border rounded-lg">
+        </div>
+      </div>
+      
+      <div class="flex gap-4 mt-6">
+        <button onclick="updateProduct('${productId}')" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          ${translate('save')}
+        </button>
+        <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+          ${translate('cancel')}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  attachEventListeners();
+}
+
+async function updateProduct(productId) {
+  const product = allRecords.find(r => r.id === productId);
+  if (!product) return;
+  
+  const nameAr = document.getElementById('editProductNameAr').value;
+  const nameEn = document.getElementById('editProductNameEn').value;
+  const price = parseFloat(convertToEnglishNumbers(document.getElementById('editProductPrice').value));
+  const unit = document.getElementById('editProductUnit').value;
+  const quantity = parseFloat(convertToEnglishNumbers(document.getElementById('editProductQuantity').value));
+  
+  if (!nameAr || !nameEn || !price || !quantity) {
+    showToast('يرجى ملء جميع الحقول');
+    return;
+  }
+  
+  const updated = {
+    ...product,
+    name_ar: nameAr,
+    name_en: nameEn,
+    price: price,
+    unit: unit,
+    quantity: quantity
+  };
+  
+  const saved = await saveToFirebase(updated);
+  
+  if (saved) {
+    const index = allRecords.findIndex(r => r.id === productId);
+    if (index !== -1) allRecords[index] = updated;
+    
+    closeModal();
+    render();
+    showToast('تم تحديث المنتج بنجاح');
+  } else {
+    showToast('حدث خطأ أثناء التحديث');
   }
 }
 
@@ -1403,6 +1677,109 @@ async function saveSubCategory(parentId) {
     showToast('تم إضافة القسم الفرعي بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة القسم الفرعي');
+  }
+}
+
+function showAddProductToCategoryModal(categoryId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  const products = allRecords.filter(r => r.type === 'product');
+  const productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-4xl max-h-[80vh] overflow-auto" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-2xl font-bold text-gray-800">اختر المنتجات - ${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
+        <button onclick="closeModal()" class="text-2xl text-gray-500 hover:text-gray-700">×</button>
+      </div>
+      
+      <div class="mb-6">
+        <input type="text" id="productSearchInModal" oninput="filterProductsInModal()" placeholder="${translate('search')}..." class="w-full px-4 py-3 border rounded-lg">
+      </div>
+      
+      <div id="productsListInModal" class="space-y-2 max-h-[50vh] overflow-y-auto">
+        ${products.map(product => {
+          const isSelected = productIds.includes(product.id);
+          return `
+            <div class="product-checkbox-item flex items-center p-4 border rounded-lg hover:bg-gray-50">
+              <input type="checkbox" id="product_${product.id}" ${isSelected ? 'checked' : ''} onchange="toggleProductInCategory('${categoryId}', '${product.id}')" class="w-5 h-5 text-purple-600 ml-3">
+              <label for="product_${product.id}" class="flex-1 cursor-pointer">
+                <span class="font-semibold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</span>
+                <span class="text-gray-600 mr-2">(${product.price} ${translate('kwd')})</span>
+              </label>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <div class="mt-6 flex justify-end">
+        <button onclick="closeModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          ${translate('close')}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function filterProductsInModal() {
+  const search = document.getElementById('productSearchInModal').value.toLowerCase();
+  const items = document.querySelectorAll('.product-checkbox-item');
+  
+  items.forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = text.includes(search) ? 'flex' : 'none';
+  });
+}
+
+async function toggleProductInCategory(categoryId, productId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  let productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  
+  if (productIds.includes(productId)) {
+    productIds = productIds.filter(id => id !== productId);
+  } else {
+    productIds.push(productId);
+  }
+  
+  const updated = {
+    ...category,
+    product_ids: productIds.join(',')
+  };
+  
+  const saved = await saveToFirebase(updated);
+  
+  if (saved) {
+    const index = allRecords.findIndex(r => r.id === categoryId);
+    if (index !== -1) allRecords[index] = updated;
+  }
+}
+
+async function removeProductFromCategory(categoryId, productId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  let productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  productIds = productIds.filter(id => id !== productId);
+  
+  const updated = {
+    ...category,
+    product_ids: productIds.join(',')
+  };
+  
+  const saved = await saveToFirebase(updated);
+  
+  if (saved) {
+    const index = allRecords.findIndex(r => r.id === categoryId);
+    if (index !== -1) allRecords[index] = updated;
+    
+    render();
+    showToast('تم إزالة المنتج من القسم');
   }
 }
 
@@ -1620,7 +1997,7 @@ async function selectCustomer(customerId) {
   const subtotal = selectedProducts.reduce((sum, item) => sum + (item.price * item.qty), 0);
   const total = subtotal + deliveryPrice;
   
-  await finalizeInvoice({
+  pendingInvoiceData = {
     customer_name: customer.customer_name,
     customer_phone: customer.customer_phone,
     country_code: customer.country_code,
@@ -1628,7 +2005,11 @@ async function selectCustomer(customerId) {
     address_detail: customer.address_detail,
     delivery_type: 'delivery',
     total: total
-  });
+  };
+  
+  closeModal();
+  currentScreen = 'paymentMethod';
+  render();
 }
 
 function showPickupModal() {
@@ -1682,7 +2063,7 @@ async function completePickup() {
   
   const total = selectedProducts.reduce((sum, item) => sum + (item.price * item.qty), 0);
   
-  await finalizeInvoice({
+  pendingInvoiceData = {
     customer_name: name,
     customer_phone: phone,
     country_code: countryCode,
@@ -1690,10 +2071,14 @@ async function completePickup() {
     total: total,
     area: '',
     address_detail: ''
-  });
+  };
+  
+  closeModal();
+  currentScreen = 'paymentMethod';
+  render();
 }
 
-async function finalizeInvoice(customerData) {
+async function finalizeInvoice(customerData, paymentMethod) {
   const invoice = {
     type: 'invoice',
     id: generateId(),
@@ -1705,6 +2090,7 @@ async function finalizeInvoice(customerData) {
     area: customerData.area || '',
     address_detail: customerData.address_detail || '',
     delivery_type: customerData.delivery_type,
+    payment_method: paymentMethod,
     items: JSON.stringify(selectedProducts),
     total: customerData.total,
     branch: getDeviceBranch(),
@@ -1718,8 +2104,8 @@ async function finalizeInvoice(customerData) {
   if (saved) {
     allRecords.push(invoice);
     printInvoice(invoice);
-    closeModal();
     selectedProducts = [];
+    pendingInvoiceData = null;
     currentScreen = 'cashier';
     render();
     showToast('تم حفظ الفاتورة بنجاح');
@@ -1728,10 +2114,21 @@ async function finalizeInvoice(customerData) {
   }
 }
 
+function selectPaymentMethod(paymentMethod, invoiceDataStr) {
+  const invoiceData = JSON.parse(invoiceDataStr.replace(/&quot;/g, '"'));
+  finalizeInvoice(invoiceData, paymentMethod);
+}
+
+function backToSelectCustomer() {
+  currentScreen = 'selectCustomer';
+  render();
+}
+
 function printInvoice(invoice) {
   const items = JSON.parse(invoice.items);
   const deliveryPrice = invoice.delivery_type === 'delivery' ? (areas.find(a => a.name === invoice.area)?.price || 0) : 0;
   const subtotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  const paymentMethodText = invoice.payment_method === 'cash' ? 'كاش' : 'أونلاين';
   
   const printWindow = window.open('', '_blank', 'noopener,noreferrer');
   printWindow.document.write(`
@@ -1755,6 +2152,14 @@ function printInvoice(invoice) {
         .item { display: flex; justify-content: space-between; margin: 5px 0; }
         .total { border-top: 2px solid #000; margin-top: 10px; padding-top: 10px; font-weight: bold; font-size: 14px; }
         .footer { text-align: center; margin-top: 10px; border-top: 2px dashed #000; padding-top: 10px; font-size: 10px; }
+        .payment-badge { 
+          display: inline-block; 
+          padding: 5px 15px; 
+          margin: 10px 0;
+          border-radius: 20px; 
+          font-weight: bold;
+          ${invoice.payment_method === 'cash' ? 'background-color: #10b981; color: white;' : 'background-color: #3b82f6; color: white;'}
+        }
       </style>
     </head>
     <body>
@@ -1779,6 +2184,9 @@ function printInvoice(invoice) {
           <strong>المنطقة:</strong> ${invoice.area}<br>
           <strong>العنوان:</strong> ${invoice.address_detail}<br>
         ` : '<strong>النوع:</strong> استلام<br>'}
+        <div style="text-align: center;">
+          <span class="payment-badge">طريقة الدفع: ${paymentMethodText}</span>
+        </div>
       </div>
       
       <div class="section">
@@ -2100,11 +2508,6 @@ function showAddCustomerModalInline() {
   showAddCustomerModal();
 }
 
-function closeModal() {
-  const modals = document.querySelectorAll('.modal-overlay');
-  modals.forEach(modal => modal.remove());
-}
-
 function showEditCategoryModal(categoryId) {
   const category = allRecords.find(r => r.id === categoryId);
   if (!category) return;
@@ -2172,84 +2575,9 @@ async function updateCategory(categoryId) {
   }
 }
 
-function manageProductsInCategory(categoryId) {
-  const category = allRecords.find(r => r.id === categoryId);
-  if (!category) return;
-  
-  const products = allRecords.filter(r => r.type === 'product');
-  const productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
-  
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
-  modal.innerHTML = `
-    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-4xl max-h-[80vh] overflow-auto" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
-      <div class="flex justify-between items-center mb-6">
-        <h3 class="text-2xl font-bold text-gray-800">إدارة منتجات: ${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
-        <button onclick="closeModal()" class="text-2xl text-gray-500 hover:text-gray-700">×</button>
-      </div>
-      
-      <div class="mb-6">
-        <input type="text" id="productSearchInCategory" oninput="filterProductsInCategory()" placeholder="${translate('search')}..." class="w-full px-4 py-3 border rounded-lg">
-      </div>
-      
-      <div id="productsListInCategory" class="space-y-2 max-h-[50vh] overflow-y-auto">
-        ${products.map(product => {
-          const isSelected = productIds.includes(product.id);
-          return `
-            <div class="product-checkbox-item flex items-center p-4 border rounded-lg hover:bg-gray-50">
-              <input type="checkbox" id="product_${product.id}" ${isSelected ? 'checked' : ''} onchange="toggleProductInCategory('${categoryId}', '${product.id}')" class="w-5 h-5 text-purple-600 ml-3">
-              <label for="product_${product.id}" class="flex-1 cursor-pointer">
-                <span class="font-semibold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</span>
-                <span class="text-gray-600 mr-2">(${product.price} ${translate('kwd')})</span>
-              </label>
-            </div>
-          `;
-        }).join('')}
-      </div>
-      
-      <div class="mt-6 flex justify-end">
-        <button onclick="closeModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${translate('close')}
-        </button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-}
-
-function filterProductsInCategory() {
-  const search = document.getElementById('productSearchInCategory').value.toLowerCase();
-  const items = document.querySelectorAll('.product-checkbox-item');
-  
-  items.forEach(item => {
-    const text = item.textContent.toLowerCase();
-    item.style.display = text.includes(search) ? 'flex' : 'none';
-  });
-}
-
-async function toggleProductInCategory(categoryId, productId) {
-  const category = allRecords.find(r => r.id === categoryId);
-  if (!category) return;
-  
-  let productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
-  
-  if (productIds.includes(productId)) {
-    productIds = productIds.filter(id => id !== productId);
-  } else {
-    productIds.push(productId);
-  }
-  
-  const updated = {
-    ...category,
-    product_ids: productIds.join(',')
-  };
-  
-  const saved = await saveToFirebase(updated);
-  
-  if (saved) {
-    const index = allRecords.findIndex(r => r.id === categoryId);
-    if (index !== -1) allRecords[index] = updated;
-  }
+function closeModal() {
+  const modals = document.querySelectorAll('.modal-overlay');
+  modals.forEach(modal => modal.remove());
 }
 
 // Initialize
@@ -2259,5 +2587,5 @@ document.addEventListener('DOMContentLoaded', () => {
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b8301d4d4a28308',t:'MTc2NzQ0ODY2Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b83161b85078308',t:'MTc2NzQ0OTQ5Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
