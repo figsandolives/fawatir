@@ -472,7 +472,8 @@ const translations = {
     allCashiers: 'All Cashiers',
     from: 'From',
     to: 'To',
-    totalRevenue: 'Total Revenue'
+    totalRevenue: 'Total Revenue',
+    allDates: 'All Dates'
   }
 };
 
@@ -787,47 +788,104 @@ function renderPage() {
 
 function renderOrdersPage() {
   const invoices = allRecords.filter(r => r.type === 'invoice' && !r.is_draft);
+  const cashiers = allRecords.filter(r => r.type === 'cashier');
+  const branches = ['main', 'abu_hasaniya', 'yarmouk'];
   
   return `
     <div class="p-8">
       <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold text-gray-800">${translate('orders')}</h1>
+        <button onclick="downloadExcelReport()" class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+          ${translate('downloadExcel')}
+        </button>
+      </div>
+      
+      <!-- Filters -->
+      <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">${translate('filterBy')}</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label class="block text-gray-700 mb-2">${translate('branch')}</label>
+            <select id="filterBranch" onchange="filterOrders()" class="w-full px-4 py-3 border rounded-lg">
+              <option value="">${translate('allBranches')}</option>
+              ${branches.map(branch => `<option value="${branch}">${getBranchName(branch)}</option>`).join('')}
+            </select>
+          </div>
+          
+          <div>
+            <label class="block text-gray-700 mb-2">${translate('cashierName')}</label>
+            <select id="filterCashier" onchange="filterOrders()" class="w-full px-4 py-3 border rounded-lg">
+              <option value="">${translate('allCashiers')}</option>
+              ${cashiers.map(cashier => `<option value="${cashier.cashier_name}">${cashier.cashier_name}</option>`).join('')}
+            </select>
+          </div>
+          
+          <div>
+            <label class="block text-gray-700 mb-2">${translate('from')}</label>
+            <input type="date" id="filterDateFrom" onchange="filterOrders()" class="w-full px-4 py-3 border rounded-lg">
+          </div>
+          
+          <div>
+            <label class="block text-gray-700 mb-2">${translate('to')}</label>
+            <input type="date" id="filterDateTo" onchange="filterOrders()" class="w-full px-4 py-3 border rounded-lg">
+          </div>
+        </div>
       </div>
       
       <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead class="bg-gray-100">
-              <tr>
-                <th class="px-6 py-4 text-right">${translate('invoiceNumber')}</th>
-                <th class="px-6 py-4 text-right">${translate('customerName')}</th>
-                <th class="px-6 py-4 text-right">${translate('date')}</th>
-                <th class="px-6 py-4 text-right">${translate('total')}</th>
-                <th class="px-6 py-4 text-right">${translate('branch')}</th>
-                <th class="px-6 py-4 text-right">${translate('cashierName')}</th>
-                <th class="px-6 py-4 text-center">الإجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${invoices.map(inv => `
-                <tr class="border-b hover:bg-gray-50">
-                  <td class="px-6 py-4">${inv.invoice_number}</td>
-                  <td class="px-6 py-4">${inv.customer_name}</td>
-                  <td class="px-6 py-4">${new Date(inv.date).toLocaleDateString('ar-SA')}</td>
-                  <td class="px-6 py-4">${inv.total} ${translate('kwd')}</td>
-                  <td class="px-6 py-4">${inv.branch ? getBranchName(inv.branch) : '-'}</td>
-                  <td class="px-6 py-4">${inv.cashier_name || '-'}</td>
-                  <td class="px-6 py-4 text-center">
-                    <button onclick="deleteInvoice('${inv.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                      ${translate('delete')}
-                    </button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+        <div id="ordersTableContainer">
+          ${renderOrdersTable(invoices)}
         </div>
       </div>
+    </div>
+  `;
+}
+
+function renderOrdersTable(invoices) {
+  const total = invoices.reduce((sum, inv) => sum + inv.total, 0);
+  
+  return `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-6 py-4 text-right">${translate('invoiceNumber')}</th>
+            <th class="px-6 py-4 text-right">${translate('customerName')}</th>
+            <th class="px-6 py-4 text-right">${translate('date')}</th>
+            <th class="px-6 py-4 text-right">${translate('total')}</th>
+            <th class="px-6 py-4 text-right">${translate('branch')}</th>
+            <th class="px-6 py-4 text-right">${translate('cashierName')}</th>
+            <th class="px-6 py-4 text-center">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${invoices.map(inv => `
+            <tr class="border-b hover:bg-gray-50">
+              <td class="px-6 py-4">${inv.invoice_number}</td>
+              <td class="px-6 py-4">${inv.customer_name}</td>
+              <td class="px-6 py-4">${new Date(inv.date).toLocaleDateString('ar-SA')}</td>
+              <td class="px-6 py-4">${inv.total.toFixed(3)} ${translate('kwd')}</td>
+              <td class="px-6 py-4">${inv.branch ? getBranchName(inv.branch) : '-'}</td>
+              <td class="px-6 py-4">${inv.cashier_name || '-'}</td>
+              <td class="px-6 py-4 text-center">
+                <button onclick="deleteInvoice('${inv.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                  ${translate('delete')}
+                </button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot class="bg-purple-50 border-t-2 border-purple-600">
+          <tr>
+            <td colspan="3" class="px-6 py-4 text-right font-bold text-xl text-purple-800">${translate('totalRevenue')}</td>
+            <td class="px-6 py-4 font-bold text-xl text-purple-600">${total.toFixed(3)} ${translate('kwd')}</td>
+            <td colspan="3"></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   `;
 }
@@ -2583,7 +2641,7 @@ function clearCurrentDeviceBranch() {
   localStorage.removeItem('deviceBranch');
   deviceBranch = null;
   render();
-  showToast('تم إلغاء تعريف الجهاز');
+  showToast('����م إلغاء تعريف الجهاز');
 }
 
 async function saveDeviceRecord() {
@@ -2615,7 +2673,7 @@ async function deleteDevice(deviceId) {
   confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
   confirmDiv.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8">
-      <p class="text-xl mb-6">هل أنت متأكد من حذف هذا الجهاز؟</p>
+      <p class="text-xl mb-6">هل أنت متأكد من ح��ف هذا الجهاز؟</p>
       <div class="flex gap-4">
         <button onclick="confirmDeleteDevice('${deviceId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700">
           نعم، احذف
@@ -2672,7 +2730,7 @@ async function confirmDeleteCashier(cashierId) {
   
   closeModal();
   render();
-  showToast('تم حذف الكاشير بنجاح');
+  showToast('تم ح��ف الكاشير بنجاح');
 }
 
 async function deleteProduct(productId) {
@@ -2781,6 +2839,112 @@ function closeModal() {
   modals.forEach(modal => modal.remove());
 }
 
+function closeModalAndRefresh() {
+  closeModal();
+  if (currentCategoryView) {
+    render();
+  }
+}
+
+function filterOrders() {
+  const branch = document.getElementById('filterBranch')?.value || '';
+  const cashier = document.getElementById('filterCashier')?.value || '';
+  const dateFrom = document.getElementById('filterDateFrom')?.value || '';
+  const dateTo = document.getElementById('filterDateTo')?.value || '';
+  
+  let invoices = allRecords.filter(r => r.type === 'invoice' && !r.is_draft);
+  
+  if (branch) {
+    invoices = invoices.filter(inv => inv.branch === branch);
+  }
+  
+  if (cashier) {
+    invoices = invoices.filter(inv => inv.cashier_name === cashier);
+  }
+  
+  if (dateFrom) {
+    const fromDate = new Date(dateFrom);
+    fromDate.setHours(0, 0, 0, 0);
+    invoices = invoices.filter(inv => new Date(inv.date) >= fromDate);
+  }
+  
+  if (dateTo) {
+    const toDate = new Date(dateTo);
+    toDate.setHours(23, 59, 59, 999);
+    invoices = invoices.filter(inv => new Date(inv.date) <= toDate);
+  }
+  
+  const container = document.getElementById('ordersTableContainer');
+  if (container) {
+    container.innerHTML = renderOrdersTable(invoices);
+  }
+}
+
+function downloadExcelReport() {
+  const branch = document.getElementById('filterBranch')?.value || '';
+  const cashier = document.getElementById('filterCashier')?.value || '';
+  const dateFrom = document.getElementById('filterDateFrom')?.value || '';
+  const dateTo = document.getElementById('filterDateTo')?.value || '';
+  
+  let invoices = allRecords.filter(r => r.type === 'invoice' && !r.is_draft);
+  
+  if (branch) {
+    invoices = invoices.filter(inv => inv.branch === branch);
+  }
+  
+  if (cashier) {
+    invoices = invoices.filter(inv => inv.cashier_name === cashier);
+  }
+  
+  if (dateFrom) {
+    const fromDate = new Date(dateFrom);
+    fromDate.setHours(0, 0, 0, 0);
+    invoices = invoices.filter(inv => new Date(inv.date) >= fromDate);
+  }
+  
+  if (dateTo) {
+    const toDate = new Date(dateTo);
+    toDate.setHours(23, 59, 59, 999);
+    invoices = invoices.filter(inv => new Date(inv.date) <= toDate);
+  }
+  
+  // Calculate total revenue
+  const totalRevenue = invoices.reduce((sum, inv) => sum + inv.total, 0);
+  
+  // Create CSV content
+  let csv = '\uFEFF'; // UTF-8 BOM for Arabic support
+  csv += 'رقم الفاتورة,اسم العميل,رقم الهاتف,التاريخ,المبلغ الإجمالي,الفرع,اسم الكاشير,نوع الطلب,طريقة الدفع,المنطقة\n';
+  
+  invoices.forEach(inv => {
+    const date = new Date(inv.date).toLocaleString('ar-SA');
+    const branchName = inv.branch ? getBranchName(inv.branch) : '-';
+    const deliveryType = inv.delivery_type === 'delivery' ? 'توصيل' : 'استلام';
+    const paymentMethod = inv.payment_method === 'cash' ? 'كاش' : 'أونلاين';
+    
+    csv += `"${inv.invoice_number}","${inv.customer_name}","${inv.country_code}${inv.customer_phone}","${date}","${inv.total.toFixed(3)}","${branchName}","${inv.cashier_name || '-'}","${deliveryType}","${paymentMethod}","${inv.area || '-'}"\n`;
+  });
+  
+  // Add total revenue row
+  csv += '\n';
+  csv += `"","","","إجمالي الإيرادات","${totalRevenue.toFixed(3)}","","","","",""\n`;
+  
+  // Create download link
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  
+  const fileName = `تقرير_الطلبات_${new Date().toLocaleDateString('ar-SA').replace(/\//g, '-')}.csv`;
+  
+  link.setAttribute('href', url);
+  link.setAttribute('download', fileName);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  showToast('تم تحميل التقرير بنجاح');
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -2788,5 +2952,5 @@ document.addEventListener('DOMContentLoaded', () => {
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b831bc363538308',t:'MTc2NzQ0OTcyOC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b8326cd66068308',t:'MTc2NzQ1MDE4MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
