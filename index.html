@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>نظام نقاط البيع والمحاسبة</title>
-  <script src="/_sdk/data_sdk.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
@@ -115,6 +114,7 @@
     }
   </style>
   <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
   <script src="/_sdk/element_sdk.js" type="text/javascript"></script>
  </head>
  <body class="h-full w-full overflow-auto bg-gray-50">
@@ -449,7 +449,7 @@ async function loadFromFirebase() {
 // Save to Firebase
 async function saveToFirebase(record) {
   try {
-    const recordId = record.__backendId || record.id;
+    const recordId = record.id;
     await database.ref(`${record.type}s/${recordId}`).set(record);
     return true;
   } catch (error) {
@@ -461,7 +461,7 @@ async function saveToFirebase(record) {
 // Delete from Firebase
 async function deleteFromFirebase(record) {
   try {
-    const recordId = record.__backendId || record.id;
+    const recordId = record.id;
     await database.ref(`${record.type}s/${recordId}`).remove();
     return true;
   } catch (error) {
@@ -470,31 +470,10 @@ async function deleteFromFirebase(record) {
   }
 }
 
-// Data SDK Handler
-const dataHandler = {
-  onDataChanged(data) {
-    allRecords = data;
-    render();
-  }
-};
-
-// Initialize Data SDK
-async function initDataSdk() {
-  // Load from Firebase first
+// Initialize App
+async function initApp() {
   await loadFromFirebase();
   render();
-  
-  // Try to initialize Canva Data SDK if available
-  if (window.dataSdk) {
-    try {
-      const result = await window.dataSdk.init(dataHandler);
-      if (!result.isOk) {
-        console.log('Data SDK init failed, using Firebase only');
-      }
-    } catch (error) {
-      console.log('Data SDK not available, using Firebase only');
-    }
-  }
 }
 
 // Render Functions
@@ -513,8 +492,6 @@ function render() {
     app.innerHTML = renderNewInvoice();
   } else if (currentScreen === 'selectCustomer') {
     app.innerHTML = renderSelectCustomer();
-  } else if (currentScreen === 'categoryView') {
-    app.innerHTML = renderCategoryView();
   }
   
   attachEventListeners();
@@ -636,7 +613,7 @@ function renderOrdersPage() {
                   <td class="px-6 py-4">${inv.branch ? getBranchName(inv.branch) : '-'}</td>
                   <td class="px-6 py-4">${inv.cashier_name || '-'}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="deleteInvoice('${inv.__backendId || inv.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                    <button onclick="deleteInvoice('${inv.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
                       ${translate('delete')}
                     </button>
                   </td>
@@ -718,7 +695,7 @@ function renderProductsPage() {
                   <td class="px-6 py-4">${product.unit}</td>
                   <td class="px-6 py-4">${product.quantity}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="deleteProduct('${product.__backendId || product.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                    <button onclick="deleteProduct('${product.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
                       ${translate('delete')}
                     </button>
                   </td>
@@ -750,7 +727,7 @@ function renderCategoriesPage() {
           const subCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === category.id);
           
           return `
-            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="openCategoryForView('${category.__backendId || category.id}')">
+            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer">
               <h3 class="text-xl font-bold text-gray-800 mb-2">${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
               <p class="text-gray-600 mb-1">${productIds.length} ${currentLang === 'ar' ? 'منتج' : 'products'}</p>
               <p class="text-gray-500">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
@@ -818,7 +795,7 @@ function renderDevicesPage() {
                       '<span class="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">غير متصل</span>'}
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="deleteDevice('${device.__backendId || device.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                    <button onclick="deleteDevice('${device.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
                       ${translate('delete')}
                     </button>
                   </td>
@@ -853,7 +830,7 @@ function renderDevicesPage() {
                   <td class="px-6 py-4">${cashier.cashier_name}</td>
                   <td class="px-6 py-4">${cashier.cashier_code}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="deleteCashier('${cashier.__backendId || cashier.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                    <button onclick="deleteCashier('${cashier.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
                       ${translate('delete')}
                     </button>
                   </td>
@@ -896,7 +873,7 @@ function renderCashier() {
           <h2 class="text-xl font-bold text-gray-800 mb-4">${translate('openInvoices')}</h2>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             ${drafts.map(draft => `
-              <div class="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 cursor-pointer hover:shadow-lg transition" onclick="continueDraft('${draft.__backendId || draft.id}')">
+              <div class="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 cursor-pointer hover:shadow-lg transition" onclick="continueDraft('${draft.id}')">
                 <p class="font-bold text-gray-800">${draft.customer_name || 'فاتورة جديدة'}</p>
                 <p class="text-sm text-gray-600">${new Date(draft.date).toLocaleString('ar-SA')}</p>
               </div>
@@ -927,7 +904,7 @@ function renderCashier() {
                     <td class="px-6 py-4">${new Date(inv.date).toLocaleDateString('ar-SA')}</td>
                     <td class="px-6 py-4">${inv.total} ${translate('kwd')}</td>
                     <td class="px-6 py-4 text-center">
-                      <button onclick="reprintInvoice('${inv.__backendId || inv.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                      <button onclick="reprintInvoice('${inv.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                         إعادة طباعة
                       </button>
                     </td>
@@ -990,7 +967,7 @@ function renderNewInvoice() {
         
         <div id="productsArea" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           ${categories.map(cat => `
-            <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId || cat.id}')">
+            <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.id}')">
               <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? cat.name_ar : cat.name_en}</h3>
               <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم' : 'Category'}</p>
             </div>
@@ -1045,8 +1022,6 @@ function renderNewInvoice() {
 }
 
 function renderSelectCustomer() {
-  const customers = allRecords.filter(r => r.type === 'customer');
-  
   return `
     <div class="h-full bg-gray-50 p-8" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
       <div class="max-w-4xl mx-auto">
@@ -1077,10 +1052,6 @@ function renderSelectCustomer() {
   `;
 }
 
-function renderCategoryView() {
-  return `<div class="p-8">Category View</div>`;
-}
-
 function getBranchName(branch) {
   const branches = {
     main: currentLang === 'ar' ? 'الفرع الرئيسي' : 'Main Branch',
@@ -1109,12 +1080,33 @@ function toggleLanguage() {
 }
 
 function showAccountingLogin() {
-  const password = prompt('أدخل كلمة المرور:');
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8">
+      <h3 class="text-xl font-bold mb-4">إدخال كلمة المرور</h3>
+      <input type="password" id="adminPassword" class="w-full px-4 py-3 border rounded-lg mb-4" placeholder="كلمة المرور">
+      <div class="flex gap-4">
+        <button onclick="checkAdminPassword()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          دخول
+        </button>
+        <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function checkAdminPassword() {
+  const password = document.getElementById('adminPassword').value;
   if (password === '5466') {
+    closeModal();
     currentScreen = 'accounting';
     currentPage = 'orders';
     render();
-  } else if (password) {
+  } else {
     showToast('كلمة المرور غير صحيحة');
   }
 }
@@ -1129,7 +1121,7 @@ function showCashierLogin() {
   render();
 }
 
-async function loginCashier() {
+function loginCashier() {
   const code = document.getElementById('cashierCodeInput').value;
   const cashier = allRecords.find(r => r.type === 'cashier' && r.cashier_code === code);
   
@@ -1250,15 +1242,9 @@ async function saveProduct() {
     return;
   }
   
-  if (allRecords.filter(r => r.type === 'product').length >= 999) {
-    showToast('تم الوصول إلى الحد الأقصى من المنتجات (999)');
-    return;
-  }
-  
   const product = {
     type: 'product',
     id: generateId(),
-    __backendId: generateId(),
     name_ar: nameAr,
     name_en: nameEn,
     price: price,
@@ -1266,21 +1252,10 @@ async function saveProduct() {
     quantity: quantity
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(product);
   
   if (saved) {
     allRecords.push(product);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(product);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     closeModal();
     render();
     showToast('تم إضافة المنتج بنجاح');
@@ -1330,36 +1305,19 @@ async function saveCategory() {
     return;
   }
   
-  if (allRecords.filter(r => r.type === 'category').length >= 999) {
-    showToast('تم الوصول إلى الحد الأقصى من الأقسام (999)');
-    return;
-  }
-  
   const category = {
     type: 'category',
     id: generateId(),
-    __backendId: generateId(),
     name_ar: nameAr,
     name_en: nameEn,
     product_ids: '',
     parent_id: ''
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(category);
   
   if (saved) {
     allRecords.push(category);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(category);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     closeModal();
     render();
     showToast('تم إضافة القسم بنجاح');
@@ -1432,15 +1390,9 @@ async function saveCustomer() {
     return;
   }
   
-  if (allRecords.filter(r => r.type === 'customer').length >= 999) {
-    showToast('تم الوصول إلى الحد الأقصى من العملاء (999)');
-    return;
-  }
-  
   const customer = {
     type: 'customer',
     id: generateId(),
-    __backendId: generateId(),
     customer_name: name,
     customer_phone: phone,
     country_code: countryCode,
@@ -1448,21 +1400,10 @@ async function saveCustomer() {
     address_detail: address
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(customer);
   
   if (saved) {
     allRecords.push(customer);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(customer);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     closeModal();
     render();
     showToast('تم إضافة العميل بنجاح');
@@ -1524,34 +1465,17 @@ async function saveCashier() {
     return;
   }
   
-  if (allRecords.filter(r => r.type === 'cashier').length >= 999) {
-    showToast('تم الوصول إلى الحد الأقصى من الكاشيرات (999)');
-    return;
-  }
-  
   const cashier = {
     type: 'cashier',
     id: generateId(),
-    __backendId: generateId(),
     cashier_name: name,
     cashier_code: code
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(cashier);
   
   if (saved) {
     allRecords.push(cashier);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(cashier);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     closeModal();
     render();
     showToast('تم إضافة الكاشير بنجاح');
@@ -1580,7 +1504,7 @@ function showCustomerSelectionModal() {
       
       <div id="customersList" class="space-y-3">
         ${customers.map(customer => `
-          <div class="customer-item p-4 border rounded-lg hover:bg-purple-50 cursor-pointer" onclick="selectCustomer('${customer.__backendId || customer.id}')">
+          <div class="customer-item p-4 border rounded-lg hover:bg-purple-50 cursor-pointer" onclick="selectCustomer('${customer.id}')">
             <h4 class="font-bold text-gray-800">${customer.customer_name}</h4>
             <p class="text-gray-600">${customer.country_code}${customer.customer_phone}</p>
             <p class="text-sm text-gray-500">${customer.area || ''} - ${customer.address_detail || ''}</p>
@@ -1609,7 +1533,7 @@ function filterCustomers() {
 }
 
 async function selectCustomer(customerId) {
-  const customer = allRecords.find(r => (r.__backendId || r.id) === customerId);
+  const customer = allRecords.find(r => r.id === customerId);
   if (!customer) return;
   
   const deliveryPrice = areas.find(a => a.name === customer.area)?.price || 0;
@@ -1690,15 +1614,9 @@ async function completePickup() {
 }
 
 async function finalizeInvoice(customerData) {
-  if (allRecords.filter(r => r.type === 'invoice').length >= 999) {
-    showToast('تم الوصول إلى الحد الأقصى من الفواتير (999)');
-    return;
-  }
-  
   const invoice = {
     type: 'invoice',
     id: generateId(),
-    __backendId: generateId(),
     invoice_number: generateInvoiceNumber(),
     date: new Date().toISOString(),
     customer_name: customerData.customer_name,
@@ -1715,21 +1633,10 @@ async function finalizeInvoice(customerData) {
     status: 'completed'
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(invoice);
   
   if (saved) {
     allRecords.push(invoice);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(invoice);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     printInvoice(invoice);
     closeModal();
     selectedProducts = [];
@@ -1842,7 +1749,6 @@ async function saveDraftAndClose() {
   const draft = {
     type: 'invoice',
     id: generateId(),
-    __backendId: generateId(),
     invoice_number: '',
     date: new Date().toISOString(),
     customer_name: '',
@@ -1859,21 +1765,10 @@ async function saveDraftAndClose() {
     status: 'draft'
   };
   
-  // Save to Firebase
   const saved = await saveToFirebase(draft);
   
   if (saved) {
     allRecords.push(draft);
-    
-    // Try Canva SDK if available
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(draft);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
-    
     selectedProducts = [];
     currentScreen = 'cashier';
     render();
@@ -1881,7 +1776,7 @@ async function saveDraftAndClose() {
 }
 
 function continueDraft(draftId) {
-  const draft = allRecords.find(r => (r.__backendId || r.id) === draftId);
+  const draft = allRecords.find(r => r.id === draftId);
   if (!draft) return;
   
   selectedProducts = JSON.parse(draft.items);
@@ -1891,7 +1786,7 @@ function continueDraft(draftId) {
 }
 
 function addProductToInvoice(productId) {
-  const product = allRecords.find(r => (r.__backendId || r.id) === productId);
+  const product = allRecords.find(r => r.id === productId);
   if (!product) return;
   
   const existing = selectedProducts.find(p => p.id === product.id);
@@ -1932,7 +1827,7 @@ function searchProducts() {
   
   if (!search) {
     productsArea.innerHTML = categories.map(cat => `
-      <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId || cat.id}')">
+      <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? cat.name_ar : cat.name_en}</h3>
         <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم' : 'Category'}</p>
       </div>
@@ -1946,7 +1841,7 @@ function searchProducts() {
   );
   
   productsArea.innerHTML = filtered.map(product => `
-    <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId || product.id}')">
+    <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.id}')">
       <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</h3>
       <p class="text-sm text-gray-600">${product.price} ${translate('kwd')}</p>
     </div>
@@ -1954,7 +1849,7 @@ function searchProducts() {
 }
 
 function openCategory(categoryId) {
-  const category = allRecords.find(r => (r.__backendId || r.id) === categoryId);
+  const category = allRecords.find(r => r.id === categoryId);
   if (!category) return;
   
   const productIds = category.product_ids ? category.product_ids.split(',') : [];
@@ -1968,22 +1863,18 @@ function openCategory(categoryId) {
       <h2 class="text-2xl font-bold text-gray-800 mt-2">${currentLang === 'ar' ? category.name_ar : category.name_en}</h2>
     </div>
     ${subCategories.map(sub => `
-      <div class="product-card bg-purple-100 rounded-lg shadow p-4" onclick="openCategory('${sub.__backendId || sub.id}')">
+      <div class="product-card bg-purple-100 rounded-lg shadow p-4" onclick="openCategory('${sub.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? sub.name_ar : sub.name_en}</h3>
         <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم فرعي' : 'Sub-Category'}</p>
       </div>
     `).join('')}
     ${products.map(product => `
-      <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId || product.id}')">
+      <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</h3>
         <p class="text-sm text-gray-600">${product.price} ${translate('kwd')}</p>
       </div>
     `).join('')}
   `;
-}
-
-function openCategoryForView(categoryId) {
-  showToast('عرض تفاصيل القسم قيد التطوير');
 }
 
 function setCurrentDeviceBranch() {
@@ -2012,38 +1903,23 @@ async function saveDeviceRecord() {
   if (existingDevice) {
     const updated = { ...existingDevice, branch: getDeviceBranch() };
     await saveToFirebase(updated);
-    
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.update(updated);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
+    const index = allRecords.findIndex(r => r.id === existingDevice.id);
+    if (index !== -1) allRecords[index] = updated;
   } else {
     const deviceData = {
       type: 'device',
       id: generateId(),
-      __backendId: generateId(),
       device_id: getDeviceId(),
       branch: getDeviceBranch()
     };
     
     await saveToFirebase(deviceData);
     allRecords.push(deviceData);
-    
-    if (window.dataSdk) {
-      try {
-        await window.dataSdk.create(deviceData);
-      } catch (e) {
-        console.log('Canva SDK not available');
-      }
-    }
   }
 }
 
 async function deleteDevice(deviceId) {
-  const device = allRecords.find(r => (r.__backendId || r.id) === deviceId);
+  const device = allRecords.find(r => r.id === deviceId);
   if (!device) return;
   
   const confirmDiv = document.createElement('div');
@@ -2065,19 +1941,11 @@ async function deleteDevice(deviceId) {
 }
 
 async function confirmDeleteDevice(deviceId) {
-  const device = allRecords.find(r => (r.__backendId || r.id) === deviceId);
+  const device = allRecords.find(r => r.id === deviceId);
   if (!device) return;
   
   await deleteFromFirebase(device);
-  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== deviceId);
-  
-  if (window.dataSdk) {
-    try {
-      await window.dataSdk.delete(device);
-    } catch (e) {
-      console.log('Canva SDK not available');
-    }
-  }
+  allRecords = allRecords.filter(r => r.id !== deviceId);
   
   closeModal();
   render();
@@ -2085,7 +1953,7 @@ async function confirmDeleteDevice(deviceId) {
 }
 
 async function deleteCashier(cashierId) {
-  const cashier = allRecords.find(r => (r.__backendId || r.id) === cashierId);
+  const cashier = allRecords.find(r => r.id === cashierId);
   if (!cashier) return;
   
   const confirmDiv = document.createElement('div');
@@ -2107,19 +1975,11 @@ async function deleteCashier(cashierId) {
 }
 
 async function confirmDeleteCashier(cashierId) {
-  const cashier = allRecords.find(r => (r.__backendId || r.id) === cashierId);
+  const cashier = allRecords.find(r => r.id === cashierId);
   if (!cashier) return;
   
   await deleteFromFirebase(cashier);
-  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== cashierId);
-  
-  if (window.dataSdk) {
-    try {
-      await window.dataSdk.delete(cashier);
-    } catch (e) {
-      console.log('Canva SDK not available');
-    }
-  }
+  allRecords = allRecords.filter(r => r.id !== cashierId);
   
   closeModal();
   render();
@@ -2127,45 +1987,29 @@ async function confirmDeleteCashier(cashierId) {
 }
 
 async function deleteProduct(productId) {
-  const product = allRecords.find(r => (r.__backendId || r.id) === productId);
+  const product = allRecords.find(r => r.id === productId);
   if (!product) return;
   
   await deleteFromFirebase(product);
-  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== productId);
-  
-  if (window.dataSdk) {
-    try {
-      await window.dataSdk.delete(product);
-    } catch (e) {
-      console.log('Canva SDK not available');
-    }
-  }
+  allRecords = allRecords.filter(r => r.id !== productId);
   
   render();
   showToast('تم حذف المنتج بنجاح');
 }
 
 async function deleteInvoice(invoiceId) {
-  const invoice = allRecords.find(r => (r.__backendId || r.id) === invoiceId);
+  const invoice = allRecords.find(r => r.id === invoiceId);
   if (!invoice) return;
   
   await deleteFromFirebase(invoice);
-  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== invoiceId);
-  
-  if (window.dataSdk) {
-    try {
-      await window.dataSdk.delete(invoice);
-    } catch (e) {
-      console.log('Canva SDK not available');
-    }
-  }
+  allRecords = allRecords.filter(r => r.id !== invoiceId);
   
   render();
   showToast('تم حذف الفاتورة بنجاح');
 }
 
 function reprintInvoice(invoiceId) {
-  const invoice = allRecords.find(r => (r.__backendId || r.id) === invoiceId);
+  const invoice = allRecords.find(r => r.id === invoiceId);
   if (invoice) {
     printInvoice(invoice);
   }
@@ -2182,11 +2026,11 @@ function closeModal() {
 }
 
 // Initialize
-document.addEventListener('DOMContentLoaded', async () => {
-  await initDataSdk();
+document.addEventListener('DOMContentLoaded', () => {
+  initApp();
   getDeviceId();
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b82f109e68d8308',t:'MTc2NzQ0Nzk3OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b82fafe04908308',t:'MTc2NzQ0ODM4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
