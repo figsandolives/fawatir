@@ -175,7 +175,7 @@ const translations = {
     kwd: 'د.ك',
     addProduct: 'إضافة منتج',
     addCategory: 'إضافة قسم',
-    addSubCategory: 'إضافة قسم فرعي',
+    addSubCategory: 'إضافة قسم فرع��',
     addCustomer: 'إضافة عميل',
     productNameAr: 'اسم المنتج بالعربي',
     productNameEn: 'اسم المنتج بالإنجليزي',
@@ -290,7 +290,7 @@ const areas = [
   { name: 'كيفان', price: 1 },
   { name: 'الروضة', price: 1 },
   { name: 'العديلية', price: 1 },
-  { name: 'الخالدية', price: 1 },
+  { name: 'الخا��دية', price: 1 },
   { name: 'النزهة', price: 1 },
   { name: 'الدعية', price: 1 },
   { name: 'المنصورية', price: 1 },
@@ -723,14 +723,29 @@ function renderCategoriesPage() {
       
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         ${categories.map(category => {
-          const productIds = category.product_ids ? category.product_ids.split(',') : [];
+          const productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
           const subCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === category.id);
           
           return `
-            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer">
-              <h3 class="text-xl font-bold text-gray-800 mb-2">${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
+            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
+              <div class="flex justify-between items-start mb-2">
+                <h3 class="text-xl font-bold text-gray-800">${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
+                <button onclick="showEditCategoryModal('${category.id}')" class="text-blue-600 hover:text-blue-800">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                  </svg>
+                </button>
+              </div>
               <p class="text-gray-600 mb-1">${productIds.length} ${currentLang === 'ar' ? 'منتج' : 'products'}</p>
-              <p class="text-gray-500">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
+              <p class="text-gray-500 mb-3">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
+              <div class="flex gap-2">
+                <button onclick="manageProductsInCategory('${category.id}')" class="flex-1 px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200">
+                  إدارة المنتجات
+                </button>
+                <button onclick="showAddSubCategoryModal('${category.id}')" class="flex-1 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">
+                  قسم فرعي
+                </button>
+              </div>
             </div>
           `;
         }).join('')}
@@ -1323,6 +1338,71 @@ async function saveCategory() {
     showToast('تم إضافة القسم بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة القسم');
+  }
+}
+
+function showAddSubCategoryModal(parentId) {
+  const parent = allRecords.find(r => r.id === parentId);
+  if (!parent) return;
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">${translate('addSubCategory')} - ${currentLang === 'ar' ? parent.name_ar : parent.name_en}</h3>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameAr')}</label>
+          <input type="text" id="subCategoryNameAr" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameEn')}</label>
+          <input type="text" id="subCategoryNameEn" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+      </div>
+      
+      <div class="flex gap-4 mt-6">
+        <button onclick="saveSubCategory('${parentId}')" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          ${translate('add')}
+        </button>
+        <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+          ${translate('cancel')}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function saveSubCategory(parentId) {
+  const nameAr = document.getElementById('subCategoryNameAr').value;
+  const nameEn = document.getElementById('subCategoryNameEn').value;
+  
+  if (!nameAr || !nameEn) {
+    showToast('يرجى ملء جميع الحقول');
+    return;
+  }
+  
+  const subCategory = {
+    type: 'category',
+    id: generateId(),
+    name_ar: nameAr,
+    name_en: nameEn,
+    product_ids: '',
+    parent_id: parentId
+  };
+  
+  const saved = await saveToFirebase(subCategory);
+  
+  if (saved) {
+    allRecords.push(subCategory);
+    closeModal();
+    render();
+    showToast('تم إضافة القسم الفرعي بنجاح');
+  } else {
+    showToast('حدث خطأ أثناء إضافة القسم الفرعي');
   }
 }
 
@@ -2025,6 +2105,153 @@ function closeModal() {
   modals.forEach(modal => modal.remove());
 }
 
+function showEditCategoryModal(categoryId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">تعديل القسم</h3>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameAr')}</label>
+          <input type="text" id="editCategoryNameAr" value="${category.name_ar}" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameEn')}</label>
+          <input type="text" id="editCategoryNameEn" value="${category.name_en}" class="w-full px-4 py-3 border rounded-lg">
+        </div>
+      </div>
+      
+      <div class="flex gap-4 mt-6">
+        <button onclick="updateCategory('${categoryId}')" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          ${translate('save')}
+        </button>
+        <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+          ${translate('cancel')}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function updateCategory(categoryId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  const nameAr = document.getElementById('editCategoryNameAr').value;
+  const nameEn = document.getElementById('editCategoryNameEn').value;
+  
+  if (!nameAr || !nameEn) {
+    showToast('يرجى ملء جميع الحقول');
+    return;
+  }
+  
+  const updated = {
+    ...category,
+    name_ar: nameAr,
+    name_en: nameEn
+  };
+  
+  const saved = await saveToFirebase(updated);
+  
+  if (saved) {
+    const index = allRecords.findIndex(r => r.id === categoryId);
+    if (index !== -1) allRecords[index] = updated;
+    
+    closeModal();
+    render();
+    showToast('تم تحديث القسم بنجاح');
+  } else {
+    showToast('حدث خطأ أثناء التحديث');
+  }
+}
+
+function manageProductsInCategory(categoryId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  const products = allRecords.filter(r => r.type === 'product');
+  const productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-4xl max-h-[80vh] overflow-auto" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-2xl font-bold text-gray-800">إدارة منتجات: ${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
+        <button onclick="closeModal()" class="text-2xl text-gray-500 hover:text-gray-700">×</button>
+      </div>
+      
+      <div class="mb-6">
+        <input type="text" id="productSearchInCategory" oninput="filterProductsInCategory()" placeholder="${translate('search')}..." class="w-full px-4 py-3 border rounded-lg">
+      </div>
+      
+      <div id="productsListInCategory" class="space-y-2 max-h-[50vh] overflow-y-auto">
+        ${products.map(product => {
+          const isSelected = productIds.includes(product.id);
+          return `
+            <div class="product-checkbox-item flex items-center p-4 border rounded-lg hover:bg-gray-50">
+              <input type="checkbox" id="product_${product.id}" ${isSelected ? 'checked' : ''} onchange="toggleProductInCategory('${categoryId}', '${product.id}')" class="w-5 h-5 text-purple-600 ml-3">
+              <label for="product_${product.id}" class="flex-1 cursor-pointer">
+                <span class="font-semibold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</span>
+                <span class="text-gray-600 mr-2">(${product.price} ${translate('kwd')})</span>
+              </label>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <div class="mt-6 flex justify-end">
+        <button onclick="closeModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          ${translate('close')}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function filterProductsInCategory() {
+  const search = document.getElementById('productSearchInCategory').value.toLowerCase();
+  const items = document.querySelectorAll('.product-checkbox-item');
+  
+  items.forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = text.includes(search) ? 'flex' : 'none';
+  });
+}
+
+async function toggleProductInCategory(categoryId, productId) {
+  const category = allRecords.find(r => r.id === categoryId);
+  if (!category) return;
+  
+  let productIds = category.product_ids ? category.product_ids.split(',').filter(id => id) : [];
+  
+  if (productIds.includes(productId)) {
+    productIds = productIds.filter(id => id !== productId);
+  } else {
+    productIds.push(productId);
+  }
+  
+  const updated = {
+    ...category,
+    product_ids: productIds.join(',')
+  };
+  
+  const saved = await saveToFirebase(updated);
+  
+  if (saved) {
+    const index = allRecords.findIndex(r => r.id === categoryId);
+    if (index !== -1) allRecords[index] = updated;
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -2032,5 +2259,5 @@ document.addEventListener('DOMContentLoaded', () => {
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b82fafe04908308',t:'MTc2NzQ0ODM4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b8301d4d4a28308',t:'MTc2NzQ0ODY2Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
