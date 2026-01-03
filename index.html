@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" class="h-full">
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -273,7 +273,7 @@ const translations = {
   }
 };
 
-const t = (key) => translations[currentLang][key] || key;
+const translate = (key) => translations[currentLang][key] || key;
 
 // Units
 const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة'];
@@ -281,8 +281,8 @@ const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتو
 // Areas with prices
 const areas = [
   { name: 'السرة', price: 0.5 },
-  { name: 'ال��هراء', price: 1 },
-  { name: 'ال��لام', price: 1 },
+  { name: 'الزهراء', price: 1 },
+  { name: 'السلام', price: 1 },
   { name: 'حطين', price: 1 },
   { name: 'الفيحاء', price: 1 },
   { name: 'القادسية', price: 1 },
@@ -331,7 +331,7 @@ const areas = [
   { name: 'الاندلس', price: 2 },
   { name: 'العارضية', price: 2 },
   { name: 'سلوى', price: 2 },
-  { name: 'الع��ان', price: 2 },
+  { name: 'العدان', price: 2 },
   { name: 'الشعب', price: 2 },
   { name: 'هدية', price: 3 },
   { name: 'الصليبيخات', price: 3 },
@@ -350,8 +350,8 @@ const areas = [
   { name: 'الصليبية', price: 3 },
   { name: 'الصباحية', price: 3 },
   { name: 'فهد الاحمد', price: 3 },
-  { name: '��بحان', price: 3 },
-  { name: 'ابو فطي��ة', price: 3 },
+  { name: 'صبحان', price: 3 },
+  { name: 'ابو فطيرة', price: 3 },
   { name: 'ابو الحصانية', price: 3 },
   { name: 'الظهر', price: 3 },
   { name: 'ابو حليفة', price: 3 },
@@ -418,49 +418,7 @@ function setDeviceBranch(branch) {
   localStorage.setItem('deviceBranch', branch);
 }
 
-// Data SDK Handler with Firebase Sync
-const dataHandler = {
-  onDataChanged(data) {
-    allRecords = data;
-    
-    // Sync to Firebase
-    syncToFirebase(data);
-    
-    render();
-  }
-};
-
-// Firebase Sync Functions
-function syncToFirebase(data) {
-  try {
-    // Organize data by type for better Firebase structure
-    const organized = {
-      products: data.filter(r => r.type === 'product'),
-      categories: data.filter(r => r.type === 'category'),
-      customers: data.filter(r => r.type === 'customer'),
-      invoices: data.filter(r => r.type === 'invoice'),
-      devices: data.filter(r => r.type === 'device'),
-      cashiers: data.filter(r => r.type === 'cashier')
-    };
-    
-    // Update each type in Firebase
-    Object.keys(organized).forEach(type => {
-      const dataToSync = {};
-      organized[type].forEach(item => {
-        const id = item.__backendId || item.id;
-        dataToSync[id] = item;
-      });
-      
-      database.ref(type).set(dataToSync).catch(err => {
-        console.error(`Error syncing ${type} to Firebase:`, err);
-      });
-    });
-  } catch (error) {
-    console.error('Error in Firebase sync:', error);
-  }
-}
-
-// Load data from Firebase on startup
+// Load data from Firebase
 async function loadFromFirebase() {
   try {
     const snapshot = await database.ref().once('value');
@@ -488,14 +446,54 @@ async function loadFromFirebase() {
   }
 }
 
+// Save to Firebase
+async function saveToFirebase(record) {
+  try {
+    const recordId = record.__backendId || record.id;
+    await database.ref(`${record.type}s/${recordId}`).set(record);
+    return true;
+  } catch (error) {
+    console.error('Error saving to Firebase:', error);
+    return false;
+  }
+}
+
+// Delete from Firebase
+async function deleteFromFirebase(record) {
+  try {
+    const recordId = record.__backendId || record.id;
+    await database.ref(`${record.type}s/${recordId}`).remove();
+    return true;
+  } catch (error) {
+    console.error('Error deleting from Firebase:', error);
+    return false;
+  }
+}
+
+// Data SDK Handler
+const dataHandler = {
+  onDataChanged(data) {
+    allRecords = data;
+    render();
+  }
+};
+
 // Initialize Data SDK
 async function initDataSdk() {
   // Load from Firebase first
   await loadFromFirebase();
+  render();
   
-  const result = await window.dataSdk.init(dataHandler);
-  if (!result.isOk) {
-    showToast('فشل في تحميل البيانات');
+  // Try to initialize Canva Data SDK if available
+  if (window.dataSdk) {
+    try {
+      const result = await window.dataSdk.init(dataHandler);
+      if (!result.isOk) {
+        console.log('Data SDK init failed, using Firebase only');
+      }
+    } catch (error) {
+      console.log('Data SDK not available, using Firebase only');
+    }
   }
 }
 
@@ -537,11 +535,11 @@ function renderHome() {
       
       <div class="flex flex-col gap-6 w-full max-w-md">
         <button onclick="showCashierLogin()" class="btn-primary text-white text-2xl font-bold py-6 px-12 rounded-xl shadow-lg">
-          ${t('cashier')}
+          ${translate('cashier')}
         </button>
         
         <button onclick="showAccountingLogin()" class="btn-primary text-white text-2xl font-bold py-6 px-12 rounded-xl shadow-lg">
-          ${t('accounting')}
+          ${translate('accounting')}
         </button>
       </div>
       
@@ -560,30 +558,30 @@ function renderAccounting() {
       <!-- Sidebar -->
       <div class="w-64 bg-white shadow-lg">
         <div class="p-6 border-b">
-          <h2 class="text-xl font-bold text-gray-800">${t('accounting')}</h2>
+          <h2 class="text-xl font-bold text-gray-800">${translate('accounting')}</h2>
         </div>
         
         <nav class="p-4">
           <button onclick="changePage('orders')" class="sidebar-item ${currentPage === 'orders' ? 'active' : ''} w-full text-right px-4 py-3 rounded-lg mb-2">
-            ${t('orders')}
+            ${translate('orders')}
           </button>
           <button onclick="changePage('customers')" class="sidebar-item ${currentPage === 'customers' ? 'active' : ''} w-full text-right px-4 py-3 rounded-lg mb-2">
-            ${t('customers')}
+            ${translate('customers')}
           </button>
           <button onclick="changePage('products')" class="sidebar-item ${currentPage === 'products' ? 'active' : ''} w-full text-right px-4 py-3 rounded-lg mb-2">
-            ${t('products')}
+            ${translate('products')}
           </button>
           <button onclick="changePage('categories')" class="sidebar-item ${currentPage === 'categories' ? 'active' : ''} w-full text-right px-4 py-3 rounded-lg mb-2">
-            ${t('categories')}
+            ${translate('categories')}
           </button>
           <button onclick="changePage('devices')" class="sidebar-item ${currentPage === 'devices' ? 'active' : ''} w-full text-right px-4 py-3 rounded-lg mb-2">
-            ${t('devices')}
+            ${translate('devices')}
           </button>
         </nav>
         
         <div class="absolute bottom-4 left-4 right-4">
           <button onclick="logout()" class="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
-            ${t('logout')}
+            ${translate('logout')}
           </button>
         </div>
       </div>
@@ -607,16 +605,11 @@ function renderPage() {
 
 function renderOrdersPage() {
   const invoices = allRecords.filter(r => r.type === 'invoice' && !r.is_draft);
-  const branches = [...new Set(invoices.map(i => i.branch).filter(Boolean))];
-  const cashiers = [...new Set(invoices.map(i => i.cashier_name).filter(Boolean))];
   
   return `
     <div class="p-8">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">${t('orders')}</h1>
-        <button onclick="showExcelModal()" class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">
-          ${t('downloadExcel')}
-        </button>
+        <h1 class="text-3xl font-bold text-gray-800">${translate('orders')}</h1>
       </div>
       
       <div class="bg-white rounded-lg shadow-lg overflow-hidden">
@@ -624,12 +617,12 @@ function renderOrdersPage() {
           <table class="w-full">
             <thead class="bg-gray-100">
               <tr>
-                <th class="px-6 py-4 text-right">${t('invoiceNumber')}</th>
-                <th class="px-6 py-4 text-right">${t('customerName')}</th>
-                <th class="px-6 py-4 text-right">${t('date')}</th>
-                <th class="px-6 py-4 text-right">${t('total')}</th>
-                <th class="px-6 py-4 text-right">${t('branch')}</th>
-                <th class="px-6 py-4 text-right">${t('cashierName')}</th>
+                <th class="px-6 py-4 text-right">${translate('invoiceNumber')}</th>
+                <th class="px-6 py-4 text-right">${translate('customerName')}</th>
+                <th class="px-6 py-4 text-right">${translate('date')}</th>
+                <th class="px-6 py-4 text-right">${translate('total')}</th>
+                <th class="px-6 py-4 text-right">${translate('branch')}</th>
+                <th class="px-6 py-4 text-right">${translate('cashierName')}</th>
                 <th class="px-6 py-4 text-center">الإجراءات</th>
               </tr>
             </thead>
@@ -639,15 +632,12 @@ function renderOrdersPage() {
                   <td class="px-6 py-4">${inv.invoice_number}</td>
                   <td class="px-6 py-4">${inv.customer_name}</td>
                   <td class="px-6 py-4">${new Date(inv.date).toLocaleDateString('ar-SA')}</td>
-                  <td class="px-6 py-4">${inv.total} ${t('kwd')}</td>
-                  <td class="px-6 py-4">${inv.branch || '-'}</td>
+                  <td class="px-6 py-4">${inv.total} ${translate('kwd')}</td>
+                  <td class="px-6 py-4">${inv.branch ? getBranchName(inv.branch) : '-'}</td>
                   <td class="px-6 py-4">${inv.cashier_name || '-'}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="editInvoice('${inv.__backendId}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2">
-                      ${t('edit')}
-                    </button>
-                    <button onclick="deleteInvoice('${inv.__backendId}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                      ${t('delete')}
+                    <button onclick="deleteInvoice('${inv.__backendId || inv.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                      ${translate('delete')}
                     </button>
                   </td>
                 </tr>
@@ -666,9 +656,9 @@ function renderCustomersPage() {
   return `
     <div class="p-8">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">${t('customers')}</h1>
+        <h1 class="text-3xl font-bold text-gray-800">${translate('customers')}</h1>
         <button onclick="showAddCustomerModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('addCustomer')}
+          ${translate('addCustomer')}
         </button>
       </div>
       
@@ -676,7 +666,7 @@ function renderCustomersPage() {
         ${customers.map(customer => {
           const customerInvoices = allRecords.filter(r => r.type === 'invoice' && r.customer_phone === customer.customer_phone && !r.is_draft);
           return `
-            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="showCustomerOrders('${customer.__backendId}')">
+            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
               <h3 class="text-xl font-bold text-gray-800 mb-2">${customer.customer_name}</h3>
               <p class="text-gray-600 mb-1">${customer.country_code}${customer.customer_phone}</p>
               <p class="text-sm text-gray-500 mb-4">${customer.area || ''}</p>
@@ -700,9 +690,9 @@ function renderProductsPage() {
   return `
     <div class="p-8">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">${t('products')}</h1>
+        <h1 class="text-3xl font-bold text-gray-800">${translate('products')}</h1>
         <button onclick="showAddProductModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('addProduct')}
+          ${translate('addProduct')}
         </button>
       </div>
       
@@ -711,11 +701,11 @@ function renderProductsPage() {
           <table class="w-full">
             <thead class="bg-gray-100">
               <tr>
-                <th class="px-6 py-4 text-right">${t('productNameAr')}</th>
-                <th class="px-6 py-4 text-right">${t('productNameEn')}</th>
-                <th class="px-6 py-4 text-right">${t('salePrice')}</th>
-                <th class="px-6 py-4 text-right">${t('unit')}</th>
-                <th class="px-6 py-4 text-right">${t('quantity')}</th>
+                <th class="px-6 py-4 text-right">${translate('productNameAr')}</th>
+                <th class="px-6 py-4 text-right">${translate('productNameEn')}</th>
+                <th class="px-6 py-4 text-right">${translate('salePrice')}</th>
+                <th class="px-6 py-4 text-right">${translate('unit')}</th>
+                <th class="px-6 py-4 text-right">${translate('quantity')}</th>
                 <th class="px-6 py-4 text-center">الإجراءات</th>
               </tr>
             </thead>
@@ -724,15 +714,12 @@ function renderProductsPage() {
                 <tr class="border-b hover:bg-gray-50">
                   <td class="px-6 py-4">${product.name_ar}</td>
                   <td class="px-6 py-4">${product.name_en}</td>
-                  <td class="px-6 py-4">${product.price} ${t('kwd')}</td>
+                  <td class="px-6 py-4">${product.price} ${translate('kwd')}</td>
                   <td class="px-6 py-4">${product.unit}</td>
                   <td class="px-6 py-4">${product.quantity}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="editProduct('${product.__backendId}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2">
-                      ${t('edit')}
-                    </button>
-                    <button onclick="deleteProduct('${product.__backendId}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                      ${t('delete')}
+                    <button onclick="deleteProduct('${product.__backendId || product.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                      ${translate('delete')}
                     </button>
                   </td>
                 </tr>
@@ -751,9 +738,9 @@ function renderCategoriesPage() {
   return `
     <div class="p-8">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">${t('categories')}</h1>
+        <h1 class="text-3xl font-bold text-gray-800">${translate('categories')}</h1>
         <button onclick="showAddCategoryModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('addCategory')}
+          ${translate('addCategory')}
         </button>
       </div>
       
@@ -763,7 +750,7 @@ function renderCategoriesPage() {
           const subCategories = allRecords.filter(r => r.type === 'category' && r.parent_id === category.id);
           
           return `
-            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="viewCategory('${category.__backendId}')">
+            <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="openCategoryForView('${category.__backendId || category.id}')">
               <h3 class="text-xl font-bold text-gray-800 mb-2">${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
               <p class="text-gray-600 mb-1">${productIds.length} ${currentLang === 'ar' ? 'منتج' : 'products'}</p>
               <p class="text-gray-500">${subCategories.length} ${currentLang === 'ar' ? 'قسم فرعي' : 'sub-categories'}</p>
@@ -783,19 +770,19 @@ function renderDevicesPage() {
   
   return `
     <div class="p-8">
-      <h1 class="text-3xl font-bold text-gray-800 mb-6">${t('devices')}</h1>
+      <h1 class="text-3xl font-bold text-gray-800 mb-6">${translate('devices')}</h1>
       
       <!-- Current Device Info -->
       <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 mb-8">
         <h2 class="text-xl font-bold text-blue-800 mb-3">الجهاز الحالي</h2>
         <p class="text-gray-700 mb-2"><strong>معرّف الجهاز:</strong> ${currentDeviceId}</p>
-        <p class="text-gray-700 mb-4"><strong>الفرع:</strong> ${currentDeviceBranch ? getBranchName(currentDeviceBranch) : t('deviceNotDefined')}</p>
+        <p class="text-gray-700 mb-4"><strong>الفرع:</strong> ${currentDeviceBranch ? getBranchName(currentDeviceBranch) : translate('deviceNotDefined')}</p>
         ${!currentDeviceBranch ? `
           <select id="currentDeviceBranch" class="w-full px-4 py-3 border rounded-lg mb-3">
-            <option value="">${t('selectBranch')}</option>
-            <option value="main">${t('mainBranch')}</option>
-            <option value="abu_hasaniya">${t('abuHasaniya')}</option>
-            <option value="yarmouk">${t('yarmouk')}</option>
+            <option value="">${translate('selectBranch')}</option>
+            <option value="main">${translate('mainBranch')}</option>
+            <option value="abu_hasaniya">${translate('abuHasaniya')}</option>
+            <option value="yarmouk">${translate('yarmouk')}</option>
           </select>
           <button onclick="setCurrentDeviceBranch()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
             تعريف الجهاز
@@ -831,8 +818,8 @@ function renderDevicesPage() {
                       '<span class="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">غير متصل</span>'}
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="deleteDevice('${device.__backendId}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                      ${t('delete')}
+                    <button onclick="deleteDevice('${device.__backendId || device.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                      ${translate('delete')}
                     </button>
                   </td>
                 </tr>
@@ -847,7 +834,7 @@ function renderDevicesPage() {
         <div class="flex justify-between items-center mb-4">
           <h2 class="text-xl font-bold text-gray-800">الكاشيرات</h2>
           <button onclick="showAddCashierModal()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-            ${t('addCashier')}
+            ${translate('addCashier')}
           </button>
         </div>
         
@@ -855,8 +842,8 @@ function renderDevicesPage() {
           <table class="w-full">
             <thead class="bg-gray-100">
               <tr>
-                <th class="px-6 py-4 text-right">${t('cashierName')}</th>
-                <th class="px-6 py-4 text-right">${t('cashierCode')}</th>
+                <th class="px-6 py-4 text-right">${translate('cashierName')}</th>
+                <th class="px-6 py-4 text-right">${translate('cashierCode')}</th>
                 <th class="px-6 py-4 text-center">الإجراءات</th>
               </tr>
             </thead>
@@ -866,11 +853,8 @@ function renderDevicesPage() {
                   <td class="px-6 py-4">${cashier.cashier_name}</td>
                   <td class="px-6 py-4">${cashier.cashier_code}</td>
                   <td class="px-6 py-4 text-center">
-                    <button onclick="editCashier('${cashier.__backendId}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2">
-                      ${t('edit')}
-                    </button>
-                    <button onclick="deleteCashier('${cashier.__backendId}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                      ${t('delete')}
+                    <button onclick="deleteCashier('${cashier.__backendId || cashier.id}')" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+                      ${translate('delete')}
                     </button>
                   </td>
                 </tr>
@@ -894,25 +878,25 @@ function renderCashier() {
     <div class="h-full bg-gray-50" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
       <div class="bg-white shadow-lg p-6 flex justify-between items-center">
         <div>
-          <h1 class="text-2xl font-bold text-gray-800">${t('cashier')}</h1>
+          <h1 class="text-2xl font-bold text-gray-800">${translate('cashier')}</h1>
           <p class="text-gray-600">${cashierDisplay}</p>
         </div>
         <div class="flex gap-4">
           <button onclick="showNewInvoice()" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-            ${t('newInvoice')}
+            ${translate('newInvoice')}
           </button>
           <button onclick="logout()" class="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
-            ${t('logout')}
+            ${translate('logout')}
           </button>
         </div>
       </div>
       
       ${drafts.length > 0 ? `
         <div class="p-6">
-          <h2 class="text-xl font-bold text-gray-800 mb-4">${t('openInvoices')}</h2>
+          <h2 class="text-xl font-bold text-gray-800 mb-4">${translate('openInvoices')}</h2>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             ${drafts.map(draft => `
-              <div class="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 cursor-pointer hover:shadow-lg transition" onclick="continueDraft('${draft.__backendId}')">
+              <div class="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 cursor-pointer hover:shadow-lg transition" onclick="continueDraft('${draft.__backendId || draft.id}')">
                 <p class="font-bold text-gray-800">${draft.customer_name || 'فاتورة جديدة'}</p>
                 <p class="text-sm text-gray-600">${new Date(draft.date).toLocaleString('ar-SA')}</p>
               </div>
@@ -922,16 +906,16 @@ function renderCashier() {
       ` : ''}
       
       <div class="p-6">
-        <h2 class="text-xl font-bold text-gray-800 mb-4">${t('orders')}</h2>
+        <h2 class="text-xl font-bold text-gray-800 mb-4">${translate('orders')}</h2>
         <div class="bg-white rounded-lg shadow-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full">
               <thead class="bg-gray-100">
                 <tr>
-                  <th class="px-6 py-4 text-right">${t('invoiceNumber')}</th>
-                  <th class="px-6 py-4 text-right">${t('customerName')}</th>
-                  <th class="px-6 py-4 text-right">${t('date')}</th>
-                  <th class="px-6 py-4 text-right">${t('total')}</th>
+                  <th class="px-6 py-4 text-right">${translate('invoiceNumber')}</th>
+                  <th class="px-6 py-4 text-right">${translate('customerName')}</th>
+                  <th class="px-6 py-4 text-right">${translate('date')}</th>
+                  <th class="px-6 py-4 text-right">${translate('total')}</th>
                   <th class="px-6 py-4 text-center">الإجراءات</th>
                 </tr>
               </thead>
@@ -941,9 +925,9 @@ function renderCashier() {
                     <td class="px-6 py-4">${inv.invoice_number}</td>
                     <td class="px-6 py-4">${inv.customer_name}</td>
                     <td class="px-6 py-4">${new Date(inv.date).toLocaleDateString('ar-SA')}</td>
-                    <td class="px-6 py-4">${inv.total} ${t('kwd')}</td>
+                    <td class="px-6 py-4">${inv.total} ${translate('kwd')}</td>
                     <td class="px-6 py-4 text-center">
-                      <button onclick="reprintInvoice('${inv.__backendId}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                      <button onclick="reprintInvoice('${inv.__backendId || inv.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                         إعادة طباعة
                       </button>
                     </td>
@@ -968,13 +952,13 @@ function renderCashierLogin() {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
             </svg>
           </div>
-          <h2 class="text-2xl font-bold text-gray-800">${t('cashier')}</h2>
+          <h2 class="text-2xl font-bold text-gray-800">${translate('cashier')}</h2>
         </div>
         
         <div id="cashierLoginError" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg"></div>
         
         <div class="mb-6">
-          <label class="block text-gray-700 mb-2">${t('cashierCode')}</label>
+          <label class="block text-gray-700 mb-2">${translate('cashierCode')}</label>
           <input type="password" id="cashierCodeInput" class="number-input w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500" placeholder="****">
         </div>
         
@@ -983,7 +967,7 @@ function renderCashierLogin() {
             دخول
           </button>
           <button onclick="backToHome()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-            ${t('cancel')}
+            ${translate('cancel')}
           </button>
         </div>
       </div>
@@ -993,7 +977,6 @@ function renderCashierLogin() {
 
 function renderNewInvoice() {
   const categories = allRecords.filter(r => r.type === 'category' && !r.parent_id);
-  const products = allRecords.filter(r => r.type === 'product');
   
   const total = selectedProducts.reduce((sum, item) => sum + (item.price * item.qty), 0);
   
@@ -1002,12 +985,12 @@ function renderNewInvoice() {
       <!-- Left Side - Products Selection -->
       <div class="flex-1 bg-gray-50 p-6 overflow-auto">
         <div class="mb-6">
-          <input type="text" id="productSearch" oninput="searchProducts()" placeholder="${t('search')}..." class="w-full px-4 py-3 border rounded-lg">
+          <input type="text" id="productSearch" oninput="searchProducts()" placeholder="${translate('search')}..." class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div id="productsArea" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           ${categories.map(cat => `
-            <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId}')">
+            <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId || cat.id}')">
               <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? cat.name_ar : cat.name_en}</h3>
               <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم' : 'Category'}</p>
             </div>
@@ -1018,7 +1001,7 @@ function renderNewInvoice() {
       <!-- Right Side - Invoice Items -->
       <div class="w-96 bg-white shadow-lg flex flex-col">
         <div class="p-6 border-b flex justify-between items-center">
-          <h2 class="text-xl font-bold text-gray-800">${t('newInvoice')}</h2>
+          <h2 class="text-xl font-bold text-gray-800">${translate('newInvoice')}</h2>
           <button onclick="saveDraftAndClose()" class="text-2xl text-gray-500 hover:text-gray-700">×</button>
         </div>
         
@@ -1034,7 +1017,7 @@ function renderNewInvoice() {
             <div class="flex items-center justify-between mb-4 p-3 bg-gray-50 rounded-lg">
               <div class="flex-1">
                 <p class="font-semibold text-gray-800">${currentLang === 'ar' ? item.name_ar : item.name_en}</p>
-                <p class="text-sm text-gray-600">${item.price} ${t('kwd')}</p>
+                <p class="text-sm text-gray-600">${item.price} ${translate('kwd')}</p>
               </div>
               <input type="text" value="${item.qty}" onchange="updateQuantity(${index}, this.value)" class="number-input w-20 px-2 py-1 border rounded text-center mx-2">
               <button onclick="removeProduct(${index})" class="text-red-500 hover:text-red-700">
@@ -1048,12 +1031,12 @@ function renderNewInvoice() {
         
         <div class="p-6 border-t">
           <div class="flex justify-between items-center mb-4">
-            <span class="text-xl font-bold text-gray-800">${t('total')}</span>
-            <span class="text-2xl font-bold text-purple-600">${total.toFixed(3)} ${t('kwd')}</span>
+            <span class="text-xl font-bold text-gray-800">${translate('total')}</span>
+            <span class="text-2xl font-bold text-purple-600">${total.toFixed(3)} ${translate('kwd')}</span>
           </div>
           
           <button onclick="proceedToCustomer()" ${selectedProducts.length === 0 ? 'disabled' : ''} class="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-            ${t('next')}
+            ${translate('next')}
           </button>
         </div>
       </div>
@@ -1078,14 +1061,14 @@ function renderSelectCustomer() {
               <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path>
               </svg>
-              <span class="text-2xl font-bold">${t('delivery')}</span>
+              <span class="text-2xl font-bold">${translate('delivery')}</span>
             </button>
             
             <button onclick="selectDeliveryType('pickup')" class="p-8 bg-gradient-to-br from-green-500 to-teal-500 text-white rounded-xl hover:shadow-xl transition">
               <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
               </svg>
-              <span class="text-2xl font-bold">${t('pickup')}</span>
+              <span class="text-2xl font-bold">${translate('pickup')}</span>
             </button>
           </div>
         </div>
@@ -1095,7 +1078,6 @@ function renderSelectCustomer() {
 }
 
 function renderCategoryView() {
-  // This will be filled when opening a category
   return `<div class="p-8">Category View</div>`;
 }
 
@@ -1211,43 +1193,43 @@ function showAddProductModal() {
   modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
   modal.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
-      <h3 class="text-2xl font-bold text-gray-800 mb-6">${t('addProduct')}</h3>
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">${translate('addProduct')}</h3>
       
       <div class="space-y-4">
         <div>
-          <label class="block text-gray-700 mb-2">${t('productNameAr')}</label>
+          <label class="block text-gray-700 mb-2">${translate('productNameAr')}</label>
           <input type="text" id="productNameAr" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('productNameEn')}</label>
+          <label class="block text-gray-700 mb-2">${translate('productNameEn')}</label>
           <input type="text" id="productNameEn" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('salePrice')}</label>
+          <label class="block text-gray-700 mb-2">${translate('salePrice')}</label>
           <input type="text" id="productPrice" class="number-input w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('unit')}</label>
+          <label class="block text-gray-700 mb-2">${translate('unit')}</label>
           <select id="productUnit" class="w-full px-4 py-3 border rounded-lg">
             ${units.map(unit => `<option value="${unit}">${unit}</option>`).join('')}
           </select>
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('quantity')}</label>
+          <label class="block text-gray-700 mb-2">${translate('quantity')}</label>
           <input type="text" id="productQuantity" class="number-input w-full px-4 py-3 border rounded-lg">
         </div>
       </div>
       
       <div class="flex gap-4 mt-6">
         <button onclick="saveProduct()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('add')}
+          ${translate('add')}
         </button>
         <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1276,6 +1258,7 @@ async function saveProduct() {
   const product = {
     type: 'product',
     id: generateId(),
+    __backendId: generateId(),
     name_ar: nameAr,
     name_en: nameEn,
     price: price,
@@ -1283,10 +1266,23 @@ async function saveProduct() {
     quantity: quantity
   };
   
-  const result = await window.dataSdk.create(product);
+  // Save to Firebase
+  const saved = await saveToFirebase(product);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(product);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(product);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     closeModal();
+    render();
     showToast('تم إضافة المنتج بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة المنتج');
@@ -1298,26 +1294,26 @@ function showAddCategoryModal() {
   modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
   modal.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
-      <h3 class="text-2xl font-bold text-gray-800 mb-6">${t('addCategory')}</h3>
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">${translate('addCategory')}</h3>
       
       <div class="space-y-4">
         <div>
-          <label class="block text-gray-700 mb-2">${t('categoryNameAr')}</label>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameAr')}</label>
           <input type="text" id="categoryNameAr" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('categoryNameEn')}</label>
+          <label class="block text-gray-700 mb-2">${translate('categoryNameEn')}</label>
           <input type="text" id="categoryNameEn" class="w-full px-4 py-3 border rounded-lg">
         </div>
       </div>
       
       <div class="flex gap-4 mt-6">
         <button onclick="saveCategory()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('add')}
+          ${translate('add')}
         </button>
         <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1342,16 +1338,30 @@ async function saveCategory() {
   const category = {
     type: 'category',
     id: generateId(),
+    __backendId: generateId(),
     name_ar: nameAr,
     name_en: nameEn,
     product_ids: '',
     parent_id: ''
   };
   
-  const result = await window.dataSdk.create(category);
+  // Save to Firebase
+  const saved = await saveToFirebase(category);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(category);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(category);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     closeModal();
+    render();
     showToast('تم إضافة القسم بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة القسم');
@@ -1363,27 +1373,27 @@ function showAddCustomerModal() {
   modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
   modal.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
-      <h3 class="text-2xl font-bold text-gray-800 mb-6">${t('addCustomer')}</h3>
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">${translate('addCustomer')}</h3>
       
       <div class="space-y-4">
         <div>
-          <label class="block text-gray-700 mb-2">${t('customerName')}</label>
+          <label class="block text-gray-700 mb-2">${translate('customerName')}</label>
           <input type="text" id="customerName" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div class="grid grid-cols-3 gap-4">
           <div>
-            <label class="block text-gray-700 mb-2">${t('countryCode')}</label>
+            <label class="block text-gray-700 mb-2">${translate('countryCode')}</label>
             <input type="text" id="countryCode" value="965" class="number-input w-full px-4 py-3 border rounded-lg">
           </div>
           <div class="col-span-2">
-            <label class="block text-gray-700 mb-2">${t('phoneNumber')}</label>
+            <label class="block text-gray-700 mb-2">${translate('phoneNumber')}</label>
             <input type="text" id="customerPhone" class="number-input w-full px-4 py-3 border rounded-lg">
           </div>
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('area')}</label>
+          <label class="block text-gray-700 mb-2">${translate('area')}</label>
           <select id="customerArea" class="w-full px-4 py-3 border rounded-lg">
             <option value="">اختر المنطقة</option>
             ${areas.map(area => `<option value="${area.name}">${area.name} - ${area.price} د.ك</option>`).join('')}
@@ -1391,17 +1401,17 @@ function showAddCustomerModal() {
         </div>
         
         <div>
-          <label class="block text-gray-700 mb-2">${t('addressDetail')}</label>
+          <label class="block text-gray-700 mb-2">${translate('addressDetail')}</label>
           <textarea id="customerAddress" class="w-full px-4 py-3 border rounded-lg" rows="3"></textarea>
         </div>
       </div>
       
       <div class="flex gap-4 mt-6">
         <button onclick="saveCustomer()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('add')}
+          ${translate('add')}
         </button>
         <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1430,6 +1440,7 @@ async function saveCustomer() {
   const customer = {
     type: 'customer',
     id: generateId(),
+    __backendId: generateId(),
     customer_name: name,
     customer_phone: phone,
     country_code: countryCode,
@@ -1437,10 +1448,23 @@ async function saveCustomer() {
     address_detail: address
   };
   
-  const result = await window.dataSdk.create(customer);
+  // Save to Firebase
+  const saved = await saveToFirebase(customer);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(customer);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(customer);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     closeModal();
+    render();
     showToast('تم إضافة العميل بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة العميل');
@@ -1452,22 +1476,22 @@ function showAddCashierModal() {
   modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
   modal.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
-      <h3 class="text-2xl font-bold text-gray-800 mb-6">${t('addCashier')}</h3>
+      <h3 class="text-2xl font-bold text-gray-800 mb-6">${translate('addCashier')}</h3>
       
       <div class="space-y-4">
         <div>
-          <label class="block text-gray-700 mb-2">${t('cashierName')}</label>
+          <label class="block text-gray-700 mb-2">${translate('cashierName')}</label>
           <input type="text" id="cashierName" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div class="flex gap-4">
           <div class="flex-1">
-            <label class="block text-gray-700 mb-2">${t('cashierCode')}</label>
+            <label class="block text-gray-700 mb-2">${translate('cashierCode')}</label>
             <input type="text" id="cashierCode" class="number-input w-full px-4 py-3 border rounded-lg">
           </div>
           <div class="flex items-end">
             <button onclick="generateCashierCodeBtn()" class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-              ${t('generate')}
+              ${translate('generate')}
             </button>
           </div>
         </div>
@@ -1475,10 +1499,10 @@ function showAddCashierModal() {
       
       <div class="flex gap-4 mt-6">
         <button onclick="saveCashier()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('add')}
+          ${translate('add')}
         </button>
         <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1508,14 +1532,28 @@ async function saveCashier() {
   const cashier = {
     type: 'cashier',
     id: generateId(),
+    __backendId: generateId(),
     cashier_name: name,
     cashier_code: code
   };
   
-  const result = await window.dataSdk.create(cashier);
+  // Save to Firebase
+  const saved = await saveToFirebase(cashier);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(cashier);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(cashier);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     closeModal();
+    render();
     showToast('تم إضافة الكاشير بنجاح');
   } else {
     showToast('حدث خطأ أثناء إضافة الكاشير');
@@ -1532,17 +1570,17 @@ function showCustomerSelectionModal() {
       <div class="flex justify-between items-center mb-6">
         <h3 class="text-2xl font-bold text-gray-800">اختر العميل</h3>
         <button onclick="showAddCustomerModalInline()" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
-          ${t('addCustomer')}
+          ${translate('addCustomer')}
         </button>
       </div>
       
       <div class="mb-6">
-        <input type="text" id="customerSearchInput" oninput="filterCustomers()" placeholder="${t('search')}..." class="w-full px-4 py-3 border rounded-lg">
+        <input type="text" id="customerSearchInput" oninput="filterCustomers()" placeholder="${translate('search')}..." class="w-full px-4 py-3 border rounded-lg">
       </div>
       
       <div id="customersList" class="space-y-3">
         ${customers.map(customer => `
-          <div class="customer-item p-4 border rounded-lg hover:bg-purple-50 cursor-pointer" onclick="selectCustomer('${customer.__backendId}')">
+          <div class="customer-item p-4 border rounded-lg hover:bg-purple-50 cursor-pointer" onclick="selectCustomer('${customer.__backendId || customer.id}')">
             <h4 class="font-bold text-gray-800">${customer.customer_name}</h4>
             <p class="text-gray-600">${customer.country_code}${customer.customer_phone}</p>
             <p class="text-sm text-gray-500">${customer.area || ''} - ${customer.address_detail || ''}</p>
@@ -1552,7 +1590,7 @@ function showCustomerSelectionModal() {
       
       <div class="mt-6">
         <button onclick="closeModal()" class="w-full px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1571,7 +1609,7 @@ function filterCustomers() {
 }
 
 async function selectCustomer(customerId) {
-  const customer = allRecords.find(r => r.__backendId === customerId);
+  const customer = allRecords.find(r => (r.__backendId || r.id) === customerId);
   if (!customer) return;
   
   const deliveryPrice = areas.find(a => a.name === customer.area)?.price || 0;
@@ -1598,17 +1636,17 @@ function showPickupModal() {
       
       <div class="space-y-4">
         <div>
-          <label class="block text-gray-700 mb-2">${t('customerName')}</label>
+          <label class="block text-gray-700 mb-2">${translate('customerName')}</label>
           <input type="text" id="pickupName" class="w-full px-4 py-3 border rounded-lg">
         </div>
         
         <div class="grid grid-cols-3 gap-4">
           <div>
-            <label class="block text-gray-700 mb-2">${t('countryCode')}</label>
+            <label class="block text-gray-700 mb-2">${translate('countryCode')}</label>
             <input type="text" id="pickupCountryCode" value="965" class="number-input w-full px-4 py-3 border rounded-lg">
           </div>
           <div class="col-span-2">
-            <label class="block text-gray-700 mb-2">${t('phoneNumber')}</label>
+            <label class="block text-gray-700 mb-2">${translate('phoneNumber')}</label>
             <input type="text" id="pickupPhone" class="number-input w-full px-4 py-3 border rounded-lg">
           </div>
         </div>
@@ -1616,10 +1654,10 @@ function showPickupModal() {
       
       <div class="flex gap-4 mt-6">
         <button onclick="completePickup()" class="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          ${t('print')}
+          ${translate('print')}
         </button>
         <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
-          ${t('cancel')}
+          ${translate('cancel')}
         </button>
       </div>
     </div>
@@ -1653,13 +1691,14 @@ async function completePickup() {
 
 async function finalizeInvoice(customerData) {
   if (allRecords.filter(r => r.type === 'invoice').length >= 999) {
-    showToast('تم الوصول إلى الحد الأق��ى من الفواتير (999)');
+    showToast('تم الوصول إلى الحد الأقصى من الفواتير (999)');
     return;
   }
   
   const invoice = {
     type: 'invoice',
     id: generateId(),
+    __backendId: generateId(),
     invoice_number: generateInvoiceNumber(),
     date: new Date().toISOString(),
     customer_name: customerData.customer_name,
@@ -1676,9 +1715,21 @@ async function finalizeInvoice(customerData) {
     status: 'completed'
   };
   
-  const result = await window.dataSdk.create(invoice);
+  // Save to Firebase
+  const saved = await saveToFirebase(invoice);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(invoice);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(invoice);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     printInvoice(invoice);
     closeModal();
     selectedProducts = [];
@@ -1695,7 +1746,7 @@ function printInvoice(invoice) {
   const deliveryPrice = invoice.delivery_type === 'delivery' ? (areas.find(a => a.name === invoice.area)?.price || 0) : 0;
   const subtotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
   
-  const printWindow = window.open('', '_blank');
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer');
   printWindow.document.write(`
     <!DOCTYPE html>
     <html dir="rtl">
@@ -1760,7 +1811,7 @@ function printInvoice(invoice) {
         </div>
         ${deliveryPrice > 0 ? `
           <div class="item">
-            <span>��سوم التوصيل:</span>
+            <span>رسوم التوصيل:</span>
             <span>${deliveryPrice.toFixed(3)} د.ك</span>
           </div>
         ` : ''}
@@ -1791,6 +1842,7 @@ async function saveDraftAndClose() {
   const draft = {
     type: 'invoice',
     id: generateId(),
+    __backendId: generateId(),
     invoice_number: '',
     date: new Date().toISOString(),
     customer_name: '',
@@ -1807,9 +1859,21 @@ async function saveDraftAndClose() {
     status: 'draft'
   };
   
-  const result = await window.dataSdk.create(draft);
+  // Save to Firebase
+  const saved = await saveToFirebase(draft);
   
-  if (result.isOk) {
+  if (saved) {
+    allRecords.push(draft);
+    
+    // Try Canva SDK if available
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(draft);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
+    
     selectedProducts = [];
     currentScreen = 'cashier';
     render();
@@ -1817,7 +1881,7 @@ async function saveDraftAndClose() {
 }
 
 function continueDraft(draftId) {
-  const draft = allRecords.find(r => r.__backendId === draftId);
+  const draft = allRecords.find(r => (r.__backendId || r.id) === draftId);
   if (!draft) return;
   
   selectedProducts = JSON.parse(draft.items);
@@ -1827,7 +1891,7 @@ function continueDraft(draftId) {
 }
 
 function addProductToInvoice(productId) {
-  const product = allRecords.find(r => r.__backendId === productId);
+  const product = allRecords.find(r => (r.__backendId || r.id) === productId);
   if (!product) return;
   
   const existing = selectedProducts.find(p => p.id === product.id);
@@ -1868,7 +1932,7 @@ function searchProducts() {
   
   if (!search) {
     productsArea.innerHTML = categories.map(cat => `
-      <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId}')">
+      <div class="product-card bg-white rounded-lg shadow p-4" onclick="openCategory('${cat.__backendId || cat.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? cat.name_ar : cat.name_en}</h3>
         <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم' : 'Category'}</p>
       </div>
@@ -1882,16 +1946,15 @@ function searchProducts() {
   );
   
   productsArea.innerHTML = filtered.map(product => `
-    <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId}')">
+    <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId || product.id}')">
       <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</h3>
-      <p class="text-sm text-gray-600">${product.price} ${t('kwd')}</p>
+      <p class="text-sm text-gray-600">${product.price} ${translate('kwd')}</p>
     </div>
   `).join('');
 }
 
 function openCategory(categoryId) {
-  // Show category products and subcategories
-  const category = allRecords.find(r => r.__backendId === categoryId);
+  const category = allRecords.find(r => (r.__backendId || r.id) === categoryId);
   if (!category) return;
   
   const productIds = category.product_ids ? category.product_ids.split(',') : [];
@@ -1905,18 +1968,22 @@ function openCategory(categoryId) {
       <h2 class="text-2xl font-bold text-gray-800 mt-2">${currentLang === 'ar' ? category.name_ar : category.name_en}</h2>
     </div>
     ${subCategories.map(sub => `
-      <div class="product-card bg-purple-100 rounded-lg shadow p-4" onclick="openCategory('${sub.__backendId}')">
+      <div class="product-card bg-purple-100 rounded-lg shadow p-4" onclick="openCategory('${sub.__backendId || sub.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? sub.name_ar : sub.name_en}</h3>
         <p class="text-sm text-gray-500">${currentLang === 'ar' ? 'قسم فرعي' : 'Sub-Category'}</p>
       </div>
     `).join('')}
     ${products.map(product => `
-      <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId}')">
+      <div class="product-card bg-white rounded-lg shadow p-4" onclick="addProductToInvoice('${product.__backendId || product.id}')">
         <h3 class="font-bold text-gray-800">${currentLang === 'ar' ? product.name_ar : product.name_en}</h3>
-        <p class="text-sm text-gray-600">${product.price} ${t('kwd')}</p>
+        <p class="text-sm text-gray-600">${product.price} ${translate('kwd')}</p>
       </div>
     `).join('')}
   `;
+}
+
+function openCategoryForView(categoryId) {
+  showToast('عرض تفاصيل القسم قيد التطوير');
 }
 
 function setCurrentDeviceBranch() {
@@ -1927,10 +1994,7 @@ function setCurrentDeviceBranch() {
   }
   
   setDeviceBranch(branch);
-  
-  // Save device record
   saveDeviceRecord();
-  
   render();
   showToast('تم تعريف الجهاز بنجاح');
 }
@@ -1945,23 +2009,41 @@ function clearCurrentDeviceBranch() {
 async function saveDeviceRecord() {
   const existingDevice = allRecords.find(r => r.type === 'device' && r.device_id === getDeviceId());
   
-  const deviceData = {
-    type: 'device',
-    id: generateId(),
-    device_id: getDeviceId(),
-    branch: getDeviceBranch()
-  };
-  
   if (existingDevice) {
     const updated = { ...existingDevice, branch: getDeviceBranch() };
-    await window.dataSdk.update(updated);
+    await saveToFirebase(updated);
+    
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.update(updated);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
   } else {
-    await window.dataSdk.create(deviceData);
+    const deviceData = {
+      type: 'device',
+      id: generateId(),
+      __backendId: generateId(),
+      device_id: getDeviceId(),
+      branch: getDeviceBranch()
+    };
+    
+    await saveToFirebase(deviceData);
+    allRecords.push(deviceData);
+    
+    if (window.dataSdk) {
+      try {
+        await window.dataSdk.create(deviceData);
+      } catch (e) {
+        console.log('Canva SDK not available');
+      }
+    }
   }
 }
 
 async function deleteDevice(deviceId) {
-  const device = allRecords.find(r => r.__backendId === deviceId);
+  const device = allRecords.find(r => (r.__backendId || r.id) === deviceId);
   if (!device) return;
   
   const confirmDiv = document.createElement('div');
@@ -1983,21 +2065,27 @@ async function deleteDevice(deviceId) {
 }
 
 async function confirmDeleteDevice(deviceId) {
-  const device = allRecords.find(r => r.__backendId === deviceId);
+  const device = allRecords.find(r => (r.__backendId || r.id) === deviceId);
   if (!device) return;
   
-  const result = await window.dataSdk.delete(device);
+  await deleteFromFirebase(device);
+  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== deviceId);
   
-  if (result.isOk) {
-    closeModal();
-    showToast('تم حذف الجهاز بنجاح');
-  } else {
-    showToast('حدث خطأ أثناء الحذف');
+  if (window.dataSdk) {
+    try {
+      await window.dataSdk.delete(device);
+    } catch (e) {
+      console.log('Canva SDK not available');
+    }
   }
+  
+  closeModal();
+  render();
+  showToast('تم حذف الجهاز بنجاح');
 }
 
 async function deleteCashier(cashierId) {
-  const cashier = allRecords.find(r => r.__backendId === cashierId);
+  const cashier = allRecords.find(r => (r.__backendId || r.id) === cashierId);
   if (!cashier) return;
   
   const confirmDiv = document.createElement('div');
@@ -2019,80 +2107,68 @@ async function deleteCashier(cashierId) {
 }
 
 async function confirmDeleteCashier(cashierId) {
-  const cashier = allRecords.find(r => r.__backendId === cashierId);
+  const cashier = allRecords.find(r => (r.__backendId || r.id) === cashierId);
   if (!cashier) return;
   
-  const result = await window.dataSdk.delete(cashier);
+  await deleteFromFirebase(cashier);
+  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== cashierId);
   
-  if (result.isOk) {
-    closeModal();
-    showToast('تم حذف الكاشير بنجاح');
-  } else {
-    showToast('حدث خطأ أثناء الحذف');
+  if (window.dataSdk) {
+    try {
+      await window.dataSdk.delete(cashier);
+    } catch (e) {
+      console.log('Canva SDK not available');
+    }
   }
+  
+  closeModal();
+  render();
+  showToast('تم حذف الكاشير بنجاح');
 }
 
 async function deleteProduct(productId) {
-  const product = allRecords.find(r => r.__backendId === productId);
+  const product = allRecords.find(r => (r.__backendId || r.id) === productId);
   if (!product) return;
   
-  const result = await window.dataSdk.delete(product);
+  await deleteFromFirebase(product);
+  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== productId);
   
-  if (result.isOk) {
-    showToast('تم حذف المنتج بنجا��');
-  } else {
-    showToast('حدث خطأ أثناء الحذف');
+  if (window.dataSdk) {
+    try {
+      await window.dataSdk.delete(product);
+    } catch (e) {
+      console.log('Canva SDK not available');
+    }
   }
+  
+  render();
+  showToast('تم حذف المنتج بنجاح');
 }
 
 async function deleteInvoice(invoiceId) {
-  const invoice = allRecords.find(r => r.__backendId === invoiceId);
+  const invoice = allRecords.find(r => (r.__backendId || r.id) === invoiceId);
   if (!invoice) return;
   
-  const result = await window.dataSdk.delete(invoice);
+  await deleteFromFirebase(invoice);
+  allRecords = allRecords.filter(r => (r.__backendId || r.id) !== invoiceId);
   
-  if (result.isOk) {
-    showToast('تم حذف الفاتورة بنجاح');
-  } else {
-    showToast('حدث خطأ أثناء الحذف');
+  if (window.dataSdk) {
+    try {
+      await window.dataSdk.delete(invoice);
+    } catch (e) {
+      console.log('Canva SDK not available');
+    }
   }
-}
-
-function editProduct(productId) {
-  // Edit functionality would be similar to add with pre-filled data
-  showToast('ميزة التعديل قيد التطوير');
-}
-
-function editInvoice(invoiceId) {
-  // Edit functionality for invoices
-  showToast('ميزة التعديل قيد التطوير');
-}
-
-function editCashier(cashierId) {
-  // Edit functionality for cashiers
-  showToast('ميزة التعديل قيد التطوير');
-}
-
-function viewCategory(categoryId) {
-  // Navigate to category detail view
-  showToast('عرض تفاصيل القسم قيد التطوير');
-}
-
-function showCustomerOrders(customerId) {
-  // Show customer order history
-  showToast('عرض طلبات العميل قيد التطوير');
+  
+  render();
+  showToast('تم حذف الفاتورة بنجاح');
 }
 
 function reprintInvoice(invoiceId) {
-  const invoice = allRecords.find(r => r.__backendId === invoiceId);
+  const invoice = allRecords.find(r => (r.__backendId || r.id) === invoiceId);
   if (invoice) {
     printInvoice(invoice);
   }
-}
-
-function showExcelModal() {
-  // Excel export functionality
-  showToast('تحميل تقرير Excel قيد التطوير');
 }
 
 function showAddCustomerModalInline() {
@@ -2108,13 +2184,9 @@ function closeModal() {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
   await initDataSdk();
-  
-  // Check if device is registered
   getDeviceId();
   getDeviceBranch();
-  
-  render();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b82e4a5575d8308',t:'MTc2NzQ0NzQ3MS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b82f109e68d8308',t:'MTc2NzQ0Nzk3OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
