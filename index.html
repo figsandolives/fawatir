@@ -377,7 +377,7 @@ const translations = {
     total: 'الإجمالي',
     kwd: 'د.ك',
     addProduct: 'إضافة منتج',
-    addCategory: 'إضافة قسم',
+    addCategory: 'إض��ف�� قسم',
     addSubCategory: 'إضافة قسم فرعي',
     addCustomer: 'إضافة عميل',
     productNameAr: 'اسم المنتج بالعربي',
@@ -387,7 +387,7 @@ const translations = {
     quantity: 'الكمية',
     categoryNameAr: 'اسم القسم بالعربي',
     categoryNameEn: 'اسم القسم بالإنجليزي',
-    customerName: 'اسم الزبون',
+    customerName: 'اسم ال��بون',
     phoneNumber: 'رقم الهاتف',
     countryCode: 'فتح الخط',
     area: 'المنطقة',
@@ -503,7 +503,7 @@ const areas = [
   { name: 'الرميثية', price: 1 },
   { name: 'عبدالله السالم', price: 1 },
   { name: 'الجابرية', price: 1 },
-  { name: 'بيان', price: 1 },
+  { name: 'بي��ن', price: 1 },
   { name: 'الصديق', price: 1 },
   { name: 'الشهداء', price: 1 },
   { name: 'اليرموك', price: 1 },
@@ -528,11 +528,11 @@ const areas = [
   { name: 'شرق', price: 2 },
   { name: 'الرحاب', price: 2 },
   { name: 'المرقاب', price: 2 },
-  { name: 'صباح السالم', price: 2 },
+  { name: 'ص����اح ا��سالم', price: 2 },
   { name: 'الفردوس', price: 2 },
   { name: 'صباح الناصر', price: 2 },
   { name: 'المسايل', price: 2 },
-  { name: 'الاندلس', price: 2 },
+  { name: 'ال��ندلس', price: 2 },
   { name: 'العارضية', price: 2 },
   { name: 'سلوى', price: 2 },
   { name: 'العدان', price: 2 },
@@ -1148,7 +1148,7 @@ function renderDevicesPage() {
           </button>
         ` : `
           <button onclick="clearCurrentDeviceBranch()" class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700">
-            إلغاء تعريف الجهاز
+            ����غاء تعريف الجهاز
           </button>
         `}
       </div>
@@ -1482,18 +1482,18 @@ function renderPaymentMethod(invoiceData) {
           <div class="mb-6">
             <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">اختر طريقة الدفع</h3>
             <div class="grid grid-cols-2 gap-6">
-              <button onclick="selectPaymentMethod('cash', ${JSON.stringify(invoiceData).replace(/"/g, '&quot;')})" class="p-8 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
+              <button onclick="selectPaymentMethod('cash')" class="p-8 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
                 <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
                 </svg>
                 <span class="text-2xl font-bold">كاش</span>
               </button>
               
-              <button onclick="selectPaymentMethod('online', ${JSON.stringify(invoiceData).replace(/"/g, '&quot;')})" class="p-8 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
+              <button onclick="selectPaymentMethod('online')" class="p-8 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-xl transition transform hover:scale-105">
                 <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
                 </svg>
-                <span class="text-2xl font-bold">أو��لاين</span>
+                <span class="text-2xl font-bold">أو��لاي��</span>
               </button>
             </div>
           </div>
@@ -1868,7 +1868,7 @@ async function saveCategory() {
     allRecords.push(category);
     closeModal();
     render();
-    showToast('تم إضافة القسم بنجاح');
+    showToast('تم إضافة القسم بنجا��');
   } else {
     showToast('حدث خطأ أثناء إضافة القسم');
   }
@@ -1951,7 +1951,7 @@ function showAddProductToCategoryModal(categoryId) {
   modal.innerHTML = `
     <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-4xl max-h-[80vh] overflow-auto" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
       <div class="flex justify-between items-center mb-6">
-        <h3 class="text-2xl font-bold text-gray-800">اختر المنتجات - ${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
+        <h3 class="text-2xl font-bold text-gray-800">اختر ��لمنتجات - ${currentLang === 'ar' ? category.name_ar : category.name_en}</h3>
         <button onclick="closeModal()" class="text-2xl text-gray-500 hover:text-gray-700">×</button>
       </div>
       
@@ -2038,7 +2038,7 @@ async function removeProductFromCategory(categoryId, productId) {
     if (index !== -1) allRecords[index] = updated;
     
     render();
-    showToast('تم إزالة المنتج من القسم');
+    showToast('تم إزالة المن��ج من القسم');
   }
 }
 
@@ -2470,7 +2470,7 @@ function printInvoice(invoice) {
           </div>
         ` : ''}
         <div class="item" style="font-size: 16px;">
-          <span>الإجمالي:</span>
+          <span>الإجما��ي:</span>
           <span>${invoice.total.toFixed(3)} د.ك</span>
         </div>
       </div>
@@ -2670,15 +2670,26 @@ async function deleteDevice(deviceId) {
   if (!device) return;
   
   const confirmDiv = document.createElement('div');
-  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-9999';
   confirmDiv.innerHTML = `
-    <div class="bg-white rounded-xl shadow-2xl p-8">
-      <p class="text-xl mb-6">هل أنت متأكد من ح��ف هذا الجهاز؟</p>
+    <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">تحذير</h3>
+        <p class="text-lg text-gray-600 mb-2">هل أنت متأكد من حذف هذا الجهاز؟</p>
+        <p class="text-md font-semibold text-red-600">${device.device_id}</p>
+        <p class="text-sm text-gray-600">${device.branch ? getBranchName(device.branch) : '-'}</p>
+        <p class="text-sm text-gray-500 mt-2">لا يمكن التراجع عن هذا الإجراء</p>
+      </div>
       <div class="flex gap-4">
-        <button onclick="confirmDeleteDevice('${deviceId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700">
+        <button onclick="confirmDeleteDevice('${deviceId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold">
           نعم، احذف
         </button>
-        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-semibold">
           إلغاء
         </button>
       </div>
@@ -2704,15 +2715,26 @@ async function deleteCashier(cashierId) {
   if (!cashier) return;
   
   const confirmDiv = document.createElement('div');
-  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-9999';
   confirmDiv.innerHTML = `
-    <div class="bg-white rounded-xl shadow-2xl p-8">
-      <p class="text-xl mb-6">هل أنت متأكد من حذف هذا الكاشير؟</p>
+    <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">تحذير</h3>
+        <p class="text-lg text-gray-600 mb-2">هل أنت متأكد من حذف هذا الكاشير؟</p>
+        <p class="text-md font-semibold text-red-600">${cashier.cashier_name}</p>
+        <p class="text-sm text-gray-600">رمز الكاشير: ${cashier.cashier_code}</p>
+        <p class="text-sm text-gray-500 mt-2">لا يمكن التراجع عن هذا الإجراء</p>
+      </div>
       <div class="flex gap-4">
-        <button onclick="confirmDeleteCashier('${cashierId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700">
+        <button onclick="confirmDeleteCashier('${cashierId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold">
           نعم، احذف
         </button>
-        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-semibold">
           إلغاء
         </button>
       </div>
@@ -2737,9 +2759,42 @@ async function deleteProduct(productId) {
   const product = allRecords.find(r => r.id === productId);
   if (!product) return;
   
+  const confirmDiv = document.createElement('div');
+  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-9999';
+  confirmDiv.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">تحذير</h3>
+        <p class="text-lg text-gray-600 mb-2">هل أنت متأكد من حذف هذا المنتج؟</p>
+        <p class="text-md font-semibold text-red-600">${currentLang === 'ar' ? product.name_ar : product.name_en}</p>
+        <p class="text-sm text-gray-500 mt-2">لا يمكن التراجع عن هذا الإجراء</p>
+      </div>
+      <div class="flex gap-4">
+        <button onclick="confirmDeleteProduct('${productId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold">
+          نعم، احذف
+        </button>
+        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-semibold">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(confirmDiv);
+}
+
+async function confirmDeleteProduct(productId) {
+  const product = allRecords.find(r => r.id === productId);
+  if (!product) return;
+  
   await deleteFromFirebase(product);
   allRecords = allRecords.filter(r => r.id !== productId);
   
+  closeModal();
   render();
   showToast('تم حذف المنتج بنجاح');
 }
@@ -2748,9 +2803,43 @@ async function deleteInvoice(invoiceId) {
   const invoice = allRecords.find(r => r.id === invoiceId);
   if (!invoice) return;
   
+  const confirmDiv = document.createElement('div');
+  confirmDiv.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-9999';
+  confirmDiv.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md" dir="${currentLang === 'ar' ? 'rtl' : 'ltr'}">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">تحذير</h3>
+        <p class="text-lg text-gray-600 mb-2">هل أنت متأكد من حذف هذه الفاتورة؟</p>
+        <p class="text-md font-semibold text-red-600">${invoice.invoice_number}</p>
+        <p class="text-sm text-gray-600">${invoice.customer_name} - ${invoice.total.toFixed(3)} د.ك</p>
+        <p class="text-sm text-gray-500 mt-2">لا يمكن التراجع عن هذا الإجراء</p>
+      </div>
+      <div class="flex gap-4">
+        <button onclick="confirmDeleteInvoice('${invoiceId}')" class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold">
+          نعم، احذف
+        </button>
+        <button onclick="closeModal()" class="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-semibold">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(confirmDiv);
+}
+
+async function confirmDeleteInvoice(invoiceId) {
+  const invoice = allRecords.find(r => r.id === invoiceId);
+  if (!invoice) return;
+  
   await deleteFromFirebase(invoice);
   allRecords = allRecords.filter(r => r.id !== invoiceId);
   
+  closeModal();
   render();
   showToast('تم حذف الفاتورة بنجاح');
 }
@@ -2952,5 +3041,5 @@ document.addEventListener('DOMContentLoaded', () => {
   getDeviceBranch();
 });
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b8326cd66068308',t:'MTc2NzQ1MDE4MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b83361295de8308',t:'MTc2NzQ1MDgwNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
