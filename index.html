@@ -771,7 +771,7 @@
           productName: product.nameAr,
           price: product.price,
           quantity: 1,
-          unit: product.unit,
+          unit: product.unit || '',
           total: product.price
         });
       }
@@ -1268,18 +1268,29 @@
       const invoiceNumber = await generateInvoiceNumber(currentBranch);
       const timestamp = Date.now();
       
+      // Clean items to ensure all fields have valid values
+      const cleanedItems = currentOrder.items.map(item => ({
+        productId: item.productId || '',
+        productName: item.productName || '',
+        price: item.price || 0,
+        quantity: item.quantity || 0,
+        total: item.total || 0,
+        unit: item.unit || ''
+      }));
+      
       const order = {
         invoiceNumber,
         timestamp,
-        cashier: currentCashier.name,
-        cashierCode: currentCashier.code,
-        branch: currentBranch,
-        customerName: currentOrder.customer.name,
-        phoneNumber: currentOrder.customer.phone,
-        orderType: currentOrder.orderType,
+        cashier: currentCashier.name || '',
+        cashierCode: currentCashier.code || '',
+        branch: currentBranch || '',
+        customerName: currentOrder.customer.name || '',
+        phoneNumber: currentOrder.customer.phone || '',
+        orderType: currentOrder.orderType || '',
         address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : '',
-        items: currentOrder.items,
+        items: cleanedItems,
         deliveryPrice: currentOrder.deliveryPrice || 0,
+        notes: currentOrder.notes || '',
         total: currentOrder.items.reduce((sum, item) => sum + item.total, 0) + (currentOrder.deliveryPrice || 0)
       };
       
