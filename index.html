@@ -230,6 +230,7 @@
       deliveryPrice: 0,
       orderType: null // 'delivery' or 'pickup'
     };
+    let selectedProductsForCategory = [];
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -2302,59 +2303,90 @@
     }
 
     
-async function processExcelImport() {
-  if (importedProductsData.length === 0) {
-    showToast('لا توجد منتجات للاستيراد', true);
-    return;
-  }
-  
-  const importButton = document.getElementById('importButton');
-  importButton.disabled = true;
-  importButton.textContent = 'جاري الاستيراد...';
-  
-  let successCount = 0;
-  let skippedCount = 0;
-  let errorCount = 0;
-  
-  for (const productData of importedProductsData) {
-    // فحص إذا كان المنتج موجود مسبقاً
-    const existingProduct = allProducts.find(p => 
-      p.nameAr === productData.nameAr && p.nameEn === productData.nameEn
-    );
-    
-    if (existingProduct) {
-      skippedCount++;
-      continue; // تخطي المنتج المكرر
+    async function processExcelImport() {
+      if (!parsedExcelData || parsedExcelData.length === 0) {
+        showToast('لا يوجد بيانات للاستيراد', true);
+        return;
+      }
+      
+      try {
+        // تحضير المنتجات من الأكسل
+        const excelProducts = parsedExcelData.map((row, index) => ({
+          id: `P${Date.now()}_${index}`,
+          nameAr: row[0],
+          nameEn: row[1],
+          price: parseFloat(row[2]) || 0,
+          unit: 'حبة'
+        }));
+        
+        // جلب المنتجات الموجودة
+        const productsRef = ref(database, `products/${currentBranch}`);
+        const snapshot = await get(productsRef);
+        const existingProducts = snapshot.exists() ? snapshot.val() : [];
+        
+        // التحقق من المنتجات المكررة
+        const duplicates = [];
+        const newProducts = [];
+        
+        excelProducts.forEach(excelProduct => {
+          // التحقق من المنتج باستخدام الاسم العربي أو الإنجليزي
+          const exists = existingProducts.some(p => {
+            const nameArMatch = p.nameAr && excelProduct.nameAr && 
+              p.nameAr.trim().toLowerCase() === excelProduct.nameAr.trim().toLowerCase();
+            const nameEnMatch = p.nameEn && excelProduct.nameEn && 
+              p.nameEn.trim().toLowerCase() === excelProduct.nameEn.trim().toLowerCase();
+            return nameArMatch || nameEnMatch;
+          });
+          
+          if (exists) {
+            duplicates.push(excelProduct.nameAr);
+          } else {
+            newProducts.push(excelProduct);
+          }
+        });
+        
+        // عرض رسالة التأكيد
+        if (duplicates.length > 0) {
+          const duplicatesList = duplicates.slice(0, 10).join('\n');
+          const moreText = duplicates.length > 10 ? `\n... و ${duplicates.length - 10} منتجات أخرى` : '';
+          
+          const confirmMsg = `⚠️ تنبيه: تم العثور على ${duplicates.length} منتج مكرر:\n\n${duplicatesList}${moreText}\n\n✅ سيتم إضافة ${newProducts.length} منتج جديد فقط.\n❌ سيتم تجاهل المنتجات المكررة.\n\nهل تريد المتابعة؟`;
+          
+          if (!confirm(confirmMsg)) {
+            showToast('تم إلغاء الاستيراد', true);
+            return;
+          }
+        } else if (newProducts.length > 0) {
+          const confirmMsg = `✅ سيتم إضافة ${newProducts.length} منتج جديد.\n\nهل تريد المتابعة؟`;
+          if (!confirm(confirmMsg)) {
+            showToast('تم إلغاء الاستيراد', true);
+            return;
+          }
+        }
+        
+        // إضافة المنتجات الجديدة فقط
+        if (newProducts.length > 0) {
+          await set(productsRef, [...existingProducts, ...newProducts]);
+          
+          allProducts = [...existingProducts, ...newProducts];
+          renderProducts();
+          
+          document.querySelector('.modal-overlay').remove();
+          
+          const successMsg = duplicates.length > 0 ? 
+            `✅ تم استيراد ${newProducts.length} منتج جديد\n⚠️ تم تجاهل ${duplicates.length} منتج مكرر` :
+            `✅ تم استيراد ${newProducts.length} منتج بنجاح`;
+          
+          showToast(successMsg);
+        } else {
+          showToast('⚠️ لا يوجد منتجات جديدة للإضافة. جميع المنتجات موجودة بالفعل!', true);
+        }
+        
+      } catch (error) {
+        console.error('Import error:', error);
+        showToast('حدث خطأ أثناء الاستيراد', true);
+      }
     }
-    
-    const product = {
-      nameAr: productData.nameAr,
-      nameEn: productData.nameEn,
-      price: productData.price,
-      categoryId: null
-    };
-    
-    const success = await saveProduct(product);
-    if (success) {
-      successCount++;
-    } else {
-      errorCount++;
-    }
-  }
-  
-  document.querySelector('.modal-overlay').remove();
-  
-  let message = `✅ تم استيراد ${successCount} منتج جديد`;
-  if (skippedCount > 0) {
-    message += `\n⚠️ تم تخطي ${skippedCount} منتج مكرر`;
-  }
-  if (errorCount > 0) {
-    message += `\n❌ فشل ${errorCount} منتج`;
-  }
-  
-  showToast(message, errorCount > successCount);
-  renderAccounting('products');
-}
 
     function showAddProductModal() {
       const modal = document.createElement('div');
@@ -2738,61 +2770,119 @@ async function processExcelImport() {
     }
 
     function showAddProductToCategoryModal(categoryId) {
-      const availableProducts = allProducts.filter(p => !p.categoryId || p.categoryId === null);
+  selectedProductsForCategory = [];
+  const availableProducts = allProducts.filter(p => !p.categoryId || p.categoryId === null);
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content p-8 w-full max-w-4xl">
+      <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة منتجات للقسم</h2>
+      <input type="text" id="addProductSearch" placeholder="🔍 بحث عن منتج..." oninput="filterAddProducts()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
       
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal-content p-8 w-full max-w-4xl">
-          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة منتج للقسم</h2>
-          <input type="text" id="addProductSearch" placeholder="بحث..." oninput="filterAddProducts()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
-            ${availableProducts.map(prod => `
-              <div class="product-card add-product-card" data-search="${prod.nameAr} ${prod.nameEn}" onclick="addProductToCategory('${prod.id}', '${categoryId}')">
-                <div class="text-3xl mb-2">📦</div>
-                <div class="font-bold mb-1">${prod.nameAr}</div>
-                <div class="text-blue-600 font-bold">${prod.price.toFixed(3)} د.ك</div>
-              </div>
-            `).join('')}
+      <div class="bg-blue-50 p-3 rounded-lg mb-4" id="selectedCountBadge" style="display: none;">
+        <span class="font-bold text-blue-600" id="selectedCount">0</span> منتج محدد
+      </div>
+      
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto" id="productsGridForCategory">
+        ${availableProducts.map(prod => `
+          <div class="product-card add-product-card border-2" data-search="${prod.nameAr} ${prod.nameEn}" data-product-id="${prod.id}" onclick="toggleProductSelection('${prod.id}', '${categoryId}')" style="border-color: #e5e7eb;">
+            <div class="text-3xl mb-2">📦</div>
+            <div class="font-bold mb-1">${prod.nameAr}</div>
+            <div class="text-blue-600 font-bold">${prod.price.toFixed(3)} د.ك</div>
           </div>
-          <button onclick="this.closest('.modal-overlay').remove(); viewCategory('${categoryId}');" class="w-full mt-6 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
-        </div>
-      `;
-      document.body.appendChild(modal);
-    }
+        `).join('')}
+      </div>
+      
+      <div class="flex gap-3 mt-6">
+        <button id="addSelectedBtn" onclick="addSelectedProductsToCategory('${categoryId}')" disabled class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">إضافة المنتجات المحددة</button>
+        <button onclick="this.closest('.modal-overlay').remove(); viewCategory('${categoryId}');" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
 
     function filterAddProducts() {
-      const searchTerm = document.getElementById('addProductSearch').value.toLowerCase();
-      const cards = document.querySelectorAll('.add-product-card');
-      
-      cards.forEach(card => {
-        const searchData = card.getAttribute('data-search').toLowerCase();
-        card.style.display = searchData.includes(searchTerm) ? '' : 'none';
-      });
+  const searchTerm = document.getElementById('addProductSearch').value.toLowerCase();
+  const cards = document.querySelectorAll('.add-product-card');
+  
+  cards.forEach(card => {
+    const searchData = card.getAttribute('data-search').toLowerCase();
+    if (searchData.includes(searchTerm)) {
+      card.style.display = '';
+    } else {
+      card.style.display = 'none';
     }
+  });
+}
 
-    async function addProductToCategory(productId, categoryId) {
-      const product = allProducts.find(p => p.id === productId);
-      product.categoryId = categoryId;
-      
-      const success = await saveProduct(product);
-      if (success) {
-        showToast('تم إضافة المنتج للقسم بنجاح');
-        document.querySelector('.modal-overlay').remove();
-        viewCategory(categoryId);
-      }
+function toggleProductSelection(productId, categoryId) {
+  const card = document.querySelector(`[data-product-id="${productId}"]`);
+  
+  if (selectedProductsForCategory.includes(productId)) {
+    // إلغاء التحديد
+    selectedProductsForCategory = selectedProductsForCategory.filter(id => id !== productId);
+    card.style.borderColor = '#e5e7eb';
+    card.style.backgroundColor = 'white';
+  } else {
+    // تحديد المنتج
+    selectedProductsForCategory.push(productId);
+    card.style.borderColor = '#3b82f6';
+    card.style.backgroundColor = '#dbeafe';
+  }
+  
+  // تحديث عداد المنتجات المحددة
+  document.getElementById('selectedCount').textContent = selectedProductsForCategory.length;
+  const badge = document.getElementById('selectedCountBadge');
+  const addBtn = document.getElementById('addSelectedBtn');
+  
+  if (selectedProductsForCategory.length > 0) {
+    badge.style.display = '';
+    addBtn.disabled = false;
+  } else {
+    badge.style.display = 'none';
+    addBtn.disabled = true;
+  }
+}
+
+    async function addSelectedProductsToCategory(categoryId) {
+  if (selectedProductsForCategory.length === 0) {
+    showToast('الرجاء تحديد منتج واحد على الأقل', true);
+    return;
+  }
+  
+  const addBtn = document.getElementById('addSelectedBtn');
+  addBtn.disabled = true;
+  addBtn.textContent = 'جاري الإضافة...';
+  
+  let successCount = 0;
+  
+  for (const productId of selectedProductsForCategory) {
+    const product = allProducts.find(p => p.id === productId);
+    product.categoryId = categoryId;
+    
+    const success = await saveProduct(product);
+    if (success) {
+      successCount++;
     }
+  }
+  
+  showToast(`تم إضافة ${successCount} منتج للقسم بنجاح`);
+  document.querySelector('.modal-overlay').remove();
+  viewCategory(categoryId);
+}
 
     async function removeProductFromCategory(productId, categoryId) {
-      const product = allProducts.find(p => p.id === productId);
-      product.categoryId = null;
-      
-      const success = await saveProduct(product);
-      if (success) {
-        showToast('تم إزالة المنتج من القسم');
-        viewCategory(categoryId);
-      }
-    }
+  const product = allProducts.find(p => p.id === productId);
+  product.categoryId = null;
+  
+  const success = await saveProduct(product);
+  if (success) {
+    showToast('تم إزالة المنتج من القسم');
+    viewCategory(categoryId);
+  }
+}
 
     // Devices and Cashiers Section
     function renderDevicesSection() {
