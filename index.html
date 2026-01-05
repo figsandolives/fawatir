@@ -1695,7 +1695,7 @@
       });
     }
 
-    function exportToExcel() {
+        function exportToExcel() {
       const rows = document.querySelectorAll('.order-row');
       let total = 0;
       let data = [];
@@ -1703,43 +1703,84 @@
       rows.forEach(row => {
         if (row.style.display !== 'none') {
           const cells = row.cells;
-          const orderTotal = parseFloat(cells[6].textContent.replace(' د.ك', '')) || 0;
+          
+          // تحديد موقع عمود المجموع بناءً على عدد الأعمدة
+          // إذا كان هناك عمود طريقة الدفع، المجموع سيكون في cells[7]
+          // إذا لم يكن، المجموع سيكون في cells[6]
+          const totalCellIndex = cells.length === 9 ? 7 : 6; // 9 أعمدة = مع طريقة الدفع، 8 أعمدة = بدون
+          
+          // استخراج الرقم فقط وإزالة "د.ك" والمسافات
+          const orderTotalText = cells[totalCellIndex].textContent.trim();
+          const orderTotal = parseFloat(orderTotalText.replace(/[^\d.]/g, '')) || 0;
           total += orderTotal;
           
-          data.push({
-            'رقم الفاتورة': cells[0].textContent,
-            'العميل': cells[1].textContent,
-            'الهاتف': cells[2].textContent,
-            'التاريخ': cells[3].textContent,
-            'الكاشير': cells[4].textContent,
-            'الفرع': cells[5].textContent,
-            'المجموع': orderTotal.toFixed(3)
-          });
+          // بناء الكائن بناءً على وجود عمود طريقة الدفع
+          if (cells.length === 9) {
+            // مع طريقة الدفع
+            data.push({
+              'رقم الفاتورة': cells[0].textContent.trim(),
+              'العميل': cells[1].textContent.trim(),
+              'الهاتف': cells[2].textContent.trim(),
+              'التاريخ': cells[3].textContent.trim(),
+              'الكاشير': cells[4].textContent.trim(),
+              'الفرع': cells[5].textContent.trim(),
+              'طريقة الدفع': cells[6].textContent.trim(),
+              'المجموع': orderTotal
+            });
+          } else {
+            // بدون طريقة الدفع
+            data.push({
+              'رقم الفاتورة': cells[0].textContent.trim(),
+              'العميل': cells[1].textContent.trim(),
+              'الهاتف': cells[2].textContent.trim(),
+              'التاريخ': cells[3].textContent.trim(),
+              'الكاشير': cells[4].textContent.trim(),
+              'الفرع': cells[5].textContent.trim(),
+              'المجموع': orderTotal
+            });
+          }
         }
       });
       
-      data.push({
-        'رقم الفاتورة': '',
-        'العميل': '',
-        'الهاتف': '',
-        'التاريخ': '',
-        'الكاشير': '',
-        'الفرع': 'إجمالي الإيرادات',
-        'المجموع': total.toFixed(3)
-      });
+      // إضافة سطر الإجمالي
+      if (data.length > 0) {
+        const emptyRow = {};
+        Object.keys(data[0]).forEach(key => {
+          if (key === 'الفرع' || key === 'طريقة الدفع') {
+            emptyRow[key] = 'إجمالي الإيرادات';
+          } else if (key === 'المجموع') {
+            emptyRow[key] = total;
+          } else {
+            emptyRow[key] = '';
+          }
+        });
+        data.push(emptyRow);
+      }
       
-      let csv = '\uFEFF';
-      const headers = Object.keys(data[0]);
-      csv += headers.join(',') + '\n';
+      // تحويل إلى CSV
+      let csv = '\uFEFF'; // UTF-8 BOM
+      if (data.length > 0) {
+        const headers = Object.keys(data[0]);
+        csv += headers.join(',') + '\n';
+        
+        data.forEach(row => {
+          const values = Object.values(row).map(val => {
+            // إذا كانت القيمة رقم، نتركها كما هي
+            // إذا كانت نص، نضعها بين علامات تنصيص
+            if (typeof val === 'number') {
+              return val;
+            }
+            return `"${val}"`;
+          });
+          csv += values.join(',') + '\n';
+        });
+      }
       
-      data.forEach(row => {
-        csv += Object.values(row).join(',') + '\n';
-      });
-      
+      // تحميل الملف
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `orders_${Date.now()}.csv`;
+      link.download = `طلبات_${new Date().toLocaleDateString('ar-SA')}.csv`;
       link.click();
       
       showToast('تم تحميل التقرير بنجاح');
