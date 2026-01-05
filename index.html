@@ -218,6 +218,7 @@
     // Global State
     let currentScreen = 'home';
     let allProducts = [];
+    let parsedExcelData = [];
     let allCategories = [];
     let allCustomers = [];
     let allOrders = [];
@@ -2596,6 +2597,10 @@
 
     function viewCategory(categoryId) {
       const category = allCategories.find(c => c.id === categoryId);
+if (!category) {
+  showToast('الفئة غير موجودة', true);
+  return;
+}
       const subCategories = allCategories.filter(c => c.parentId === categoryId);
       const products = allProducts.filter(p => p.categoryId === categoryId);
       
