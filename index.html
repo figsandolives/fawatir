@@ -825,36 +825,82 @@
       updateSelectedItemsDisplay();
     }
     
-    function showOrderTypeSelection() {
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal-content p-8 w-96">
-      <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">نوع الطلب</h2>
-      
-      <div class="mb-4">
-        <label class="block mb-2 font-bold text-gray-700">ملاحظات (اختياري)</label>
-        <textarea id="orderNotes" rows="3" placeholder="أي ملاحظات على الطلب..." class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"></textarea>
-      </div>
-      
-      <div class="space-y-4">
-        <button onclick="selectOrderType('delivery')" class="w-full bg-green-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition">
-          🚚 توصيل
-        </button>
-        <button onclick="selectOrderType('pickup')" class="w-full bg-blue-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 transition">
-          🛍️ استلام
-        </button>
-      </div>
-      <button onclick="this.closest('.modal-overlay').remove()" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
-    </div>
-  `;
-  document.body.appendChild(modal);
-}
+     function showOrderTypeSelection() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">تفاصيل الطلب</h2>
+          
+          <div class="mb-4">
+            <label class="block mb-2 font-bold text-gray-700">طريقة الدفع</label>
+            <div class="grid grid-cols-2 gap-3 mb-4">
+              <button onclick="selectPaymentMethod('cash')" id="cashBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition">
+                💵 كاش
+              </button>
+              <button onclick="selectPaymentMethod('online')" id="onlineBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition">
+                💳 أونلاين
+              </button>
+            </div>
+          </div>
+          
+          <div class="mb-4">
+            <label class="block mb-2 font-bold text-gray-700">ملاحظات (اختياري)</label>
+            <textarea id="orderNotes" rows="3" placeholder="أي ملاحظات على الطلب..." class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"></textarea>
+          </div>
+          
+          <div class="space-y-4">
+            <button onclick="selectOrderType('delivery')" id="deliveryBtn" disabled class="w-full bg-gray-400 text-white px-6 py-4 rounded-lg font-bold text-xl cursor-not-allowed transition">
+              🚚 توصيل
+            </button>
+            <button onclick="selectOrderType('pickup')" id="pickupBtn" disabled class="w-full bg-gray-400 text-white px-6 py-4 rounded-lg font-bold text-xl cursor-not-allowed transition">
+              🛍️ استلام
+            </button>
+          </div>
+          <button onclick="this.closest('.modal-overlay').remove()" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
     
-    function selectOrderType(type) {
-  currentOrder.orderType = type;
-  currentOrder.notes = document.getElementById('orderNotes').value.trim();
-  document.querySelector('.modal-overlay').remove();
+
+        let selectedPaymentMethod = null;
+    
+    function selectPaymentMethod(method) {
+      selectedPaymentMethod = method;
+      
+      // تغيير ألوان الأزرار
+      const cashBtn = document.getElementById('cashBtn');
+      const onlineBtn = document.getElementById('onlineBtn');
+      const deliveryBtn = document.getElementById('deliveryBtn');
+      const pickupBtn = document.getElementById('pickupBtn');
+      
+      if (method === 'cash') {
+        cashBtn.className = 'bg-green-600 text-white px-6 py-3 rounded-lg font-bold transition';
+        onlineBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition';
+      } else {
+        onlineBtn.className = 'bg-blue-600 text-white px-6 py-3 rounded-lg font-bold transition';
+        cashBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition';
+      }
+      
+      // تفعيل أزرار نوع الطلب
+      deliveryBtn.disabled = false;
+      deliveryBtn.className = 'w-full bg-green-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition';
+      pickupBtn.disabled = false;
+      pickupBtn.className = 'w-full bg-blue-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 transition';
+    }
+
+
+        function selectOrderType(type) {
+      if (!selectedPaymentMethod) {
+        showToast('الرجاء اختيار طريقة الدفع أولاً', true);
+        return;
+      }
+      
+      currentOrder.orderType = type;
+      currentOrder.paymentMethod = selectedPaymentMethod;
+      currentOrder.notes = document.getElementById('orderNotes').value.trim();
+      document.querySelector('.modal-overlay').remove();
   
   if (type === 'delivery') {
     showCustomerSelectionForDelivery();
@@ -1287,6 +1333,7 @@
         customerName: currentOrder.customer.name || '',
         phoneNumber: currentOrder.customer.phone || '',
         orderType: currentOrder.orderType || '',
+        paymentMethod: currentOrder.paymentMethod || '',
         address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : '',
         items: cleanedItems,
         deliveryPrice: currentOrder.deliveryPrice || 0,
@@ -1351,9 +1398,9 @@
                 <span><strong>الكاشير:</strong></span>
                 <span>${order.cashier}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                 <span><strong>الفرع:</strong></span>
-                <span>${order.branch}</span>
+                <span>${order.branch === 'الفرع الرئيسي' ? 'الفرع الرئيسي' : order.branch === 'اليرموك' ? 'اليرموك' : order.branch === 'أبو الحصانية' ? 'أبو الحصانية' : order.branch}</span>
               </div>
             </div>
             
@@ -1361,9 +1408,10 @@
               <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px;">العميل</div>
               <div style="font-size: 12px;">
                 <div><strong>الاسم:</strong> ${order.customerName}</div>
-                <div><strong>الهاتف:</strong> ${order.phoneNumber}</div>
+                <div><strong>الهاتف:</strong> ${order.phoneNumber.startsWith('965') ? '965 ' + order.phoneNumber.slice(3) : order.phoneNumber}</div>
                 ${order.address ? `<div><strong>العنوان:</strong> ${order.address}</div>` : ''}
                 <div><strong>النوع:</strong> ${order.orderType === 'delivery' ? 'توصيل 🚚' : 'استلام 🛍️'}</div>
+                <div><strong>طريقة الدفع:</strong> ${order.paymentMethod === 'cash' ? 'كاش 💵' : 'أونلاين 💳'}</div>
               </div>
             </div>
 
@@ -1389,23 +1437,30 @@
                   ${order.items.map(item => `
                     <tr style="border-bottom: 1px dotted #ccc;">
                       <td style="padding: 5px 0;">${item.productName}</td>
-                      <td style="text-align: center; padding: 5px 0;">${item.quantity} ${item.unit}</td>
+                      <td style="text-align: center; padding: 5px 0;">${item.quantity}</td>
                       <td style="text-align: left; padding: 5px 0;">${item.total.toFixed(3)}</td>
                     </tr>
                   `).join('')}
-                  ${order.deliveryPrice > 0 ? `
-                    <tr style="border-bottom: 1px dotted #ccc;">
-                      <td colspan="2" style="padding: 5px 0;">رسوم التوصيل</td>
-                      <td style="text-align: left; padding: 5px 0;">${order.deliveryPrice.toFixed(3)}</td>
-                    </tr>
-                  ` : ''}
                 </tbody>
               </table>
             </div>
             
-            <div style="border-top: 2px solid #000; padding-top: 10px; text-align: center;">
-              <div style="font-size: 20px; font-weight: bold; margin-bottom: 5px;">
-                المجموع الكلي: ${order.total.toFixed(3)} د.ك
+            <div style="border-top: 2px solid #000; padding-top: 10px; margin-top: 10px;">
+              <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+                <span><strong>مجموع المنتجات:</strong></span>
+                <span><strong>${order.items.reduce((sum, item) => sum + item.total, 0).toFixed(3)} د.ك</strong></span>
+              </div>
+              ${order.deliveryPrice > 0 ? `
+                <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+                  <span><strong>رسوم التوصيل:</strong></span>
+                  <span><strong>${order.deliveryPrice.toFixed(3)} د.ك</strong></span>
+                </div>
+              ` : ''}
+            </div>
+            
+              <div style="border-top: 2px double #000; padding-top: 10px; text-align: center; margin-top: 5px;">
+              <div style="font-size: 22px; font-weight: bold; margin-bottom: 5px; color: #000;">
+                الإجمالي الكلي: ${order.total.toFixed(3)} د.ك
               </div>
               <div style="font-size: 10px; color: #666; margin-top: 10px;">
                 صحتك بأمان معنا..
@@ -1568,6 +1623,7 @@
                     <th>التاريخ</th>
                     <th>الكاشير</th>
                     <th>الفرع</th>
+                    <th>طريقة الدفع</th>
                     <th>المجموع</th>
                     <th>الإجراءات</th>
                   </tr>
@@ -1581,6 +1637,7 @@
                       <td>${formatDate(order.timestamp)}</td>
                       <td>${order.cashier || 'N/A'}</td>
                       <td>${order.branch || 'N/A'}</td>
+                      <td>${order.paymentMethod === 'cash' ? '💵 كاش' : order.paymentMethod === 'online' ? '💳 أونلاين' : 'N/A'}</td>
                       <td>${order.total ? order.total.toFixed(3) : '0.000'} د.ك</td>
                       <td>
                         <button onclick="viewOrder('${order.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition">عرض</button>
@@ -1706,6 +1763,7 @@
               ${order.address ? `<div class="col-span-2"><strong>العنوان:</strong> ${order.address}</div>` : ''}
               <div><strong>الكاشير:</strong> ${order.cashier}</div>
               <div><strong>الفرع:</strong> ${order.branch}</div>
+              <div><strong>طريقة الدفع:</strong> ${order.paymentMethod === 'cash' ? '💵 كاش' : order.paymentMethod === 'online' ? '💳 أونلاين' : 'N/A'}</div>
             </div>
           </div>
           
