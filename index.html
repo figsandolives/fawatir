@@ -771,6 +771,7 @@
         currentOrder.items.push({
           productId: product.id,
           productName: product.nameAr,
+          productNameEn: product.nameEn,
           price: product.price,
           quantity: 1,
           unit: product.unit || '',
@@ -1320,6 +1321,7 @@
       const cleanedItems = currentOrder.items.map(item => ({
         productId: item.productId || '',
         productName: item.productName || '',
+        productNameEn: item.productNameEn || '', 
         price: item.price || 0,
         quantity: item.quantity || 0,
         total: item.total || 0,
@@ -1367,7 +1369,7 @@
               <img src="logo.png" alt="الشعار" style="width: 120px; height: 120px; margin: 0 auto 10px auto; display: block; object-fit: contain;" onerror="this.style.display='none';">
               <div style="font-size: 20px; font-weight: bold; margin-bottom: 5px;">🥖 مخبز التين والزيتون</div>
               <div style="font-size: 11px; line-height: 1.4;">
-                الكويت اليرموك ق٢ شارع ٢ بالقرب من باب فرع الجمعية<br>
+                الكويت اليرموك، ق٢ شارع ٢ ، بالقرب من باب فرع الجمعية<br>
                 ☎️ 22085889 | للرسائل: 65162277<br>
 
                 @figsolives.kw
@@ -1410,7 +1412,7 @@
               <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px;">العميل</div>
               <div style="font-size: 12px;">
                 <div><strong>الاسم:</strong> ${order.customerName}</div>
-                <div><strong>الهاتف:</strong> ${order.phoneNumber.startsWith('965') ? '965 ' + order.phoneNumber.slice(3) : order.phoneNumber}</div>
+                <div><strong>الهاتف:</strong> ${order.phoneNumber.startsWith('') ? ' ' + order.phoneNumber.slice(3) : order.phoneNumber}</div>
                 ${order.address ? `<div><strong>العنوان:</strong> ${order.address}</div>` : ''}
                 <div><strong>النوع:</strong> ${order.orderType === 'delivery' ? 'توصيل 🚚' : 'استلام 🛍️'}</div>
                 <div><strong>طريقة الدفع:</strong> ${order.paymentMethod === 'cash' ? 'كاش 💵' : 'أونلاين 💳'}</div>
@@ -1437,12 +1439,17 @@
                 </thead>
                 <tbody>
                   ${order.items.map(item => `
-                    <tr style="border-bottom: 1px dotted #ccc;">
-                      <td style="padding: 5px 0;">${item.productName}</td>
-                      <td style="text-align: center; padding: 5px 0;">${item.quantity}</td>
-                      <td style="text-align: left; padding: 5px 0;">${item.total.toFixed(3)}</td>
-                    </tr>
-                  `).join('')}
+  <tr style="border-bottom: 1px dotted #ccc;">
+    <td style="padding: 5px 0;">
+      <div style="font-weight: bold;">${item.productName}</div>
+      ${item.productNameEn ? `<div style="font-size: 10px; color: #666;">${item.productNameEn}</div>` : ''}
+    </td>
+    <td style="text-align: center; padding: 5px 0;">${item.quantity}</td>
+    <td style="text-align: left; padding: 5px 0;">${item.total.toFixed(3)}</td>
+  </tr>
+`).join('')}
+
+
                 </tbody>
               </table>
             </div>
@@ -1465,7 +1472,7 @@
                 الإجمالي الكلي: ${order.total.toFixed(3)} د.ك
               </div>
               <div style="font-size: 10px; color: #666; margin-top: 10px;">
-                صحتك بأمان معنا..
+               صحتك أغلى ما تملك،، فتناول شيئاً صحياً.
               </div>
             </div>
           </div>
