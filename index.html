@@ -151,27 +151,41 @@
     }
     
     @media print {
-      body * {
-        visibility: hidden;
-      }
-      .print-area, .print-area * {
-        visibility: visible;
-      }
-      .print-area {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-      }
-    }
+  .no-print {
+    display: none !important;
+  }
+  
+  @page {
+    size: 80mm auto;
+    margin: 5mm;
+  }
+  
+  body {
+    width: 80mm;
+  }
+  
+  body * {
+    visibility: hidden;
+  }
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+  }
+}
     
     .thermal-invoice {
-      width: 380px;
-      margin: 0 auto;
-      padding: 10px;
-      font-family: 'Cairo', sans-serif;
-      background: white;
-    }
+  width: 70mm;
+  margin: 0 auto;
+  padding: 5mm;
+  font-family: 'Cairo', sans-serif;
+  background: white;
+  font-size: 10px;
+}
     
     .quantity-input {
       width: 60px;
@@ -566,8 +580,8 @@
       app.innerHTML = `
         <div class="flex flex-col h-full bg-gray-100">
           <!-- Header -->
-          <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
-            <div class="text-xl font-bold">${currentCashier.name} (${currentBranch})</div>
+          <div class="no-print bg-blue-600 text-white p-4 flex justify-between items-center">
+           <div class="text-xl font-bold">${currentCashier.name} (${currentBranch})</div>
             <button onclick="logoutCashier()" class="bg-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition">
               🚪 خروج
             </button>
@@ -633,8 +647,8 @@
       page.innerHTML = `
         <div class="h-full flex flex-col">
           <!-- Header with close button -->
-          <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
-            <h2 class="text-2xl font-bold">فاتورة جديدة</h2>
+          <div class="no-print bg-blue-600 text-white p-4 flex justify-between items-center">
+  <h2 class="text-2xl font-bold">فاتورة جديدة</h2>
             <button onclick="closeInvoicePage()" class="text-3xl font-bold hover:text-red-300">✕</button>
           </div>
           
@@ -1368,7 +1382,7 @@
             <div style="text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px;">
               <img src="logo.png" alt="الشعار" style="width: 120px; height: 120px; margin: 0 auto 10px auto; display: block; object-fit: contain;" onerror="this.style.display='none';">
               <div style="font-size: 20px; font-weight: bold; margin-bottom: 5px;">🥖 مخبز التين والزيتون</div>
-              <div style="font-size: 11px; line-height: 1.4;">
+              <div style="font-size: 7px; line-height: 1.4;">
                 الكويت اليرموك، ق٢ شارع ٢ ، بالقرب من باب فرع الجمعية<br>
                 ☎️ 22085889 | للرسائل: 65162277<br>
 
@@ -1377,7 +1391,7 @@
               
               <div style="margin: 10px 0; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 5px 0;">
                 <div style="font-size: 18px; font-weight: bold; margin-bottom: 3px;">🍽️ مطعم التين الطبيعي</div>
-                <div style="font-size: 11px; line-height: 1.4;">
+                <div style="font-size: 7px; line-height: 1.4;">
                   الكويت، أبو الحصانية، مول ٣٠، المطل على شارع الفحيحيل السريع<br>
                   ☎️ 22085886 | للرسائل: 99176512<br>
                   @natural_figs
@@ -1429,11 +1443,11 @@
 ` : ''}
             
             <div style="border-top: 2px dashed #000; padding-top: 10px; margin-bottom: 10px;">
-              <table style="width: 100%; font-size: 11px;">
+              <table style="width: 100%; font-size: 9px;">
                 <thead>
                   <tr style="border-bottom: 1px solid #000;">
                     <th style="text-align: right; padding: 5px 0;">المنتج</th>
-                    <th style="text-align: center; padding: 5px 0;">الكمية</th>
+                    <th style="text-align: center; padding: 5px 0;">الكمية/</th>
                     <th style="text-align: left; padding: 5px 0;">المجموع</th>
                   </tr>
                 </thead>
@@ -1455,12 +1469,12 @@
             </div>
             
             <div style="border-top: 2px solid #000; padding-top: 10px; margin-top: 10px;">
-              <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+              <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 5px;">
                 <span><strong>مجموع المنتجات:</strong></span>
                 <span><strong>${order.items.reduce((sum, item) => sum + item.total, 0).toFixed(3)} د.ك</strong></span>
               </div>
               ${order.deliveryPrice > 0 ? `
-                <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+                <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 5px;">
                   <span><strong>رسوم التوصيل:</strong></span>
                   <span><strong>${order.deliveryPrice.toFixed(3)} د.ك</strong></span>
                 </div>
@@ -1468,7 +1482,7 @@
             </div>
             
               <div style="border-top: 2px double #000; padding-top: 10px; text-align: center; margin-top: 5px;">
-              <div style="font-size: 22px; font-weight: bold; margin-bottom: 5px; color: #000;">
+              <div style="font-size: 15px; font-weight: bold; margin-bottom: 5px; color: #000;">
                 الإجمالي الكلي: ${order.total.toFixed(3)} د.ك
               </div>
               <div style="font-size: 10px; color: #666; margin-top: 10px;">
