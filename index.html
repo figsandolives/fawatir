@@ -1518,13 +1518,10 @@ function printThermalInvoice(button) {
         ${invoiceContent}
       </div>
       <script>
-        window.onload = function() {
-          setTimeout(function() {
-            window.print();
-          }, 500);
-          window.onafterprint = function() {
-            window.close();
-          };
+        window.print();
+        window.onafterprint = function() {
+          window.close();
+        };
       <\/script>
     </body>
     </html>
