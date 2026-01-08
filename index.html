@@ -1488,9 +1488,11 @@ function printThermalInvoice(button) {
     </head>
     <body>
       ${invoiceContent}
-      <script>
+            <script>
         window.onload = function() {
-          window.print();
+          setTimeout(function() {
+            window.print();
+          }, 500);
           window.onafterprint = function() {
             window.close();
           };
