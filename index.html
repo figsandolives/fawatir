@@ -1385,7 +1385,7 @@
         <div style="background: #f9f9f9; padding: 5px; border-radius: 3px; margin-bottom: 8px; font-size: 11px;">
           <div style="font-weight: bold; border-bottom: 1px solid #eee; margin-bottom: 3px;">العميل: ${order.customerName}</div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-            <span>📞 ${order.phoneNumber}</span>
+            <span>📞 ${order.phoneNumber.replace(/^\+?965\s?/, '')}</span>
             <span style="background: #000; color: #fff; padding: 0 5px; border-radius: 2px;">${order.orderType === 'delivery' ? 'توصيل' : 'استلام'}</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
