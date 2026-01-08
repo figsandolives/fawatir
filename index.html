@@ -1466,29 +1466,58 @@ function printThermalInvoice(button) {
       <title>طباعة الفاتورة</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
       <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        
         @page {
           size: 80mm auto;
           margin: 0;
         }
         
-        body {
+        html, body {
           margin: 0;
-          padding: 5mm;
+          padding: 0;
+          width: 80mm;
+          height: auto;
+        }
+        
+        body {
           font-family: 'Cairo', sans-serif;
           background: white;
-          width: 80mm;
+          padding: 3mm 2mm;
+        }
+        
+        .thermal-invoice {
+          width: 100%;
+          max-width: 76mm;
+          margin: 0 auto;
+          padding: 0;
         }
         
         @media print {
+          html, body {
+            height: auto;
+            overflow: visible;
+          }
+          
           body {
             padding: 2mm;
+          }
+          
+          .thermal-invoice {
+            page-break-after: avoid;
           }
         }
       </style>
     </head>
     <body>
-      ${invoiceContent}
-            <script>
+      <div class="thermal-invoice">
+        ${invoiceContent}
+      </div>
+      <script>
         window.onload = function() {
           setTimeout(function() {
             window.print();
