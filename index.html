@@ -785,7 +785,7 @@
               <button onclick="removeItemFromInvoice(${index})" class="text-red-600 hover:text-red-800 font-bold text-lg">✕</button>
             </div>
             <div class="flex items-center gap-2">
-              <input type="number" step="0.001" min="0" value="${item.quantity}" oninput="updateItemQuantity(${index}, this.value)" class="quantity-input">
+              <input type="text" value="${item.quantity}" readonly onclick="showNumericKeypadForInvoice(${index}, this)" class="quantity-input bg-white cursor-pointer">
               <span class="text-sm text-gray-600">× ${item.price.toFixed(3)}</span>
               <span class="font-bold text-blue-600 mr-auto">${item.total.toFixed(3)} د.ك</span>
             </div>
@@ -814,6 +814,89 @@
       currentOrder.items.splice(index, 1);
       updateSelectedItemsDisplay();
     }
+function showNumericKeypadForInvoice(index, inputField) {
+  if (document.querySelector('.numeric-keypad-overlay')) return;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'numeric-keypad-overlay';
+  overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+  
+  const keypad = document.createElement('div');
+  keypad.style.cssText = 'background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);';
+  
+  const display = document.createElement('input');
+  display.type = 'text';
+  display.value = inputField.value || '0';
+  display.readOnly = true;
+  display.style.cssText = 'width: 100%; font-size: 32px; text-align: center; padding: 15px; margin-bottom: 15px; border: 2px solid #2563eb; border-radius: 8px; font-weight: bold;';
+  
+  const buttonsContainer = document.createElement('div');
+  buttonsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 300px;';
+  
+  const buttons = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', 'مسح', 'موافق'];
+  
+  buttons.forEach(btn => {
+    const button = document.createElement('button');
+    button.textContent = btn;
+    button.style.cssText = 'padding: 20px; font-size: 24px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s;';
+    
+    if (btn === 'موافق') {
+      button.style.background = '#22c55e';
+      button.style.color = 'white';
+    } else if (btn === 'مسح') {
+      button.style.background = '#ef4444';
+      button.style.color = 'white';
+    } else {
+      button.style.background = '#e5e7eb';
+      button.style.color = '#1f2937';
+    }
+    
+    button.onmouseover = () => {
+      button.style.transform = 'scale(1.05)';
+      button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+    };
+    
+    button.onmouseout = () => {
+      button.style.transform = 'scale(1)';
+      button.style.boxShadow = 'none';
+    };
+    
+    button.onclick = () => {
+      if (btn === 'موافق') {
+        const newValue = display.value;
+        updateItemQuantity(index, newValue);
+        overlay.remove();
+      } else if (btn === 'مسح') {
+        display.value = '0';
+      } else if (btn === '.') {
+        if (display.value === '0') {
+          display.value = '0.';
+        } else if (!display.value.includes('.')) {
+          display.value += '.';
+        }
+      } else {
+        if (display.value === '0') {
+          display.value = btn;
+        } else {
+          display.value += btn;
+        }
+      }
+    };
+    
+    buttonsContainer.appendChild(button);
+  });
+  
+  keypad.appendChild(display);
+  keypad.appendChild(buttonsContainer);
+  overlay.appendChild(keypad);
+  
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
+  
+  document.body.appendChild(overlay);
+}
+
     
      function showOrderTypeSelection() {
       const modal = document.createElement('div');
@@ -1403,11 +1486,12 @@
             </tr>
           </thead>
           <tbody>
-            ${order.items.map(item => `
+              ${order.items.map(item => `
               <tr>
                 <td style="padding: 4px 0; border-bottom: 1px dotted #eee;">
                   <div style="font-weight: 700;">${item.productName}</div>
                   ${item.productNameEn ? `<div style="font-size: 9px; color: #666;">${item.productNameEn}</div>` : ''}
+                  ${item.notes ? `<div style="font-size: 10px; color: #0066cc; margin-top: 2px; font-weight: 600;">📝 ${item.notes}</div>` : ''}
                 </td>
                 <td style="text-align: center; font-weight: bold; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.quantity}</td>
                 <td style="text-align: left; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.total.toFixed(3)}</td>
@@ -1432,6 +1516,13 @@
             <span>${order.total.toFixed(3)} د.ك</span>
           </div>
         </div>
+
+        ${order.notes ? `
+<div style="background: #fffbeb; border: 1px dashed #fbbf24; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 11px;">
+  <div style="font-weight: bold; margin-bottom: 3px; color: #92400e;">📝 ملاحظات:</div>
+  <div style="color: #451a03; line-height: 1.4;">${order.notes}</div>
+</div>
+` : ''}
 
         <div style="text-align: center; margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px;">
           <div style="font-size: 11px; font-weight: bold;">شكراً لزيارتكم!</div>
@@ -1488,6 +1579,7 @@ function printThermalInvoice(button) {
           font-family: 'Cairo', sans-serif;
           background: white;
           padding: 3mm 2mm;
+          font-size: 15px;
         }
         
         .thermal-invoice {
@@ -1495,6 +1587,18 @@ function printThermalInvoice(button) {
           max-width: 69mm;
           margin: 0 auto;
           padding: 0;
+        }
+        
+        .thermal-invoice * {
+          font-size: 15px !important;
+          line-height: 1.5;
+          letter-spacing: 0.3px;
+        }
+        
+        .thermal-invoice strong,
+        .thermal-invoice b {
+          font-size: 17px !important;
+          font-weight: 700;
         }
         
         @media print {
@@ -1505,10 +1609,20 @@ function printThermalInvoice(button) {
           
           body {
             padding: 2mm;
+            font-size: 15px;
           }
           
           .thermal-invoice {
             page-break-after: avoid;
+          }
+          
+          .thermal-invoice * {
+            font-size: 15px !important;
+          }
+          
+          .thermal-invoice strong,
+          .thermal-invoice b {
+            font-size: 17px !important;
           }
         }
       </style>
@@ -1626,8 +1740,11 @@ function printThermalInvoice(button) {
       return `
         <div>
           <div class="flex justify-between items-center mb-6">
+          <h2 class="text-3xl font-bold text-blue-600">الطلبات</h2>
+          <div class="flex gap-3">
+           <button onclick="printAllVisibleInvoices()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة الفواتير</button>
             <h2 class="text-3xl font-bold text-blue-600">الطلبات</h2>
-            <button onclick="exportToExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+               <button onclick="exportToExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
           </div>
           
           <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
@@ -1746,47 +1863,60 @@ function printThermalInvoice(button) {
 
         function exportToExcel() {
       const rows = document.querySelectorAll('.order-row');
-      let total = 0;
+      let totalNet = 0;
+      let totalDelivery = 0;
+      let totalFinal = 0;
       let data = [];
       
       rows.forEach(row => {
         if (row.style.display !== 'none') {
           const cells = row.cells;
           
-          // تحديد موقع عمود المجموع بناءً على عدد الأعمدة
-          // إذا كان هناك عمود طريقة الدفع، المجموع سيكون في cells[7]
-          // إذا لم يكن، المجموع سيكون في cells[6]
-          const totalCellIndex = cells.length === 9 ? 7 : 6; // 9 أعمدة = مع طريقة الدفع، 8 أعمدة = بدون
+          // استخراج بيانات الطلب من الصف
+          const orderId = cells[0].textContent.trim().replace('#', '');
+          const order = orders.find(o => o.invoiceNumber === orderId);
           
-          // استخراج الرقم فقط وإزالة "د.ك" والمسافات
-          const orderTotalText = cells[totalCellIndex].textContent.trim();
-          const orderTotal = parseFloat(orderTotalText.replace(/[^\d.]/g, '')) || 0;
-          total += orderTotal;
-          
-          // بناء الكائن بناءً على وجود عمود طريقة الدفع
-          if (cells.length === 9) {
-            // مع طريقة الدفع
-            data.push({
-              'رقم الفاتورة': cells[0].textContent.trim(),
-              'العميل': cells[1].textContent.trim(),
-              'الهاتف': cells[2].textContent.trim(),
-              'التاريخ': cells[3].textContent.trim(),
-              'الكاشير': cells[4].textContent.trim(),
-              'الفرع': cells[5].textContent.trim(),
-              'طريقة الدفع': cells[6].textContent.trim(),
-              'المجموع': orderTotal
-            });
-          } else {
-            // بدون طريقة الدفع
-            data.push({
-              'رقم الفاتورة': cells[0].textContent.trim(),
-              'العميل': cells[1].textContent.trim(),
-              'الهاتف': cells[2].textContent.trim(),
-              'التاريخ': cells[3].textContent.trim(),
-              'الكاشير': cells[4].textContent.trim(),
-              'الفرع': cells[5].textContent.trim(),
-              'المجموع': orderTotal
-            });
+          if (order) {
+            // حساب الأسعار
+            const deliveryFee = parseFloat(order.deliveryFee) || 0;
+            const netAmount = parseFloat(order.total) - deliveryFee;
+            const finalTotal = parseFloat(order.total) || 0;
+            
+            totalNet += netAmount;
+            totalDelivery += deliveryFee;
+            totalFinal += finalTotal;
+            
+            // بناء الكائن بناءً على وجود عمود طريقة الدفع
+            const totalCellIndex = cells.length === 9 ? 7 : 6;
+            
+            if (cells.length === 9) {
+              // مع طريقة الدفع
+              data.push({
+                'رقم الفاتورة': cells[0].textContent.trim(),
+                'العميل': cells[1].textContent.trim(),
+                'الهاتف': cells[2].textContent.trim(),
+                'التاريخ': cells[3].textContent.trim(),
+                'الكاشير': cells[4].textContent.trim(),
+                'الفرع': cells[5].textContent.trim(),
+                'طريقة الدفع': cells[6].textContent.trim(),
+                'صافي الفاتورة': netAmount.toFixed(3),
+                'رسوم التوصيل': deliveryFee.toFixed(3),
+                'الإجمالي': finalTotal.toFixed(3)
+              });
+            } else {
+              // بدون طريقة الدفع
+              data.push({
+                'رقم الفاتورة': cells[0].textContent.trim(),
+                'العميل': cells[1].textContent.trim(),
+                'الهاتف': cells[2].textContent.trim(),
+                'التاريخ': cells[3].textContent.trim(),
+                'الكاشير': cells[4].textContent.trim(),
+                'الفرع': cells[5].textContent.trim(),
+                'صافي الفاتورة': netAmount.toFixed(3),
+                'رسوم التوصيل': deliveryFee.toFixed(3),
+                'الإجمالي': finalTotal.toFixed(3)
+              });
+            }
           }
         }
       });
@@ -1797,8 +1927,12 @@ function printThermalInvoice(button) {
         Object.keys(data[0]).forEach(key => {
           if (key === 'الفرع' || key === 'طريقة الدفع') {
             emptyRow[key] = 'إجمالي الإيرادات';
-          } else if (key === 'المجموع') {
-            emptyRow[key] = total;
+          } else if (key === 'صافي الفاتورة') {
+            emptyRow[key] = totalNet.toFixed(3);
+          } else if (key === 'رسوم التوصيل') {
+            emptyRow[key] = totalDelivery.toFixed(3);
+          } else if (key === 'الإجمالي') {
+            emptyRow[key] = totalFinal.toFixed(3);
           } else {
             emptyRow[key] = '';
           }
@@ -1816,7 +1950,7 @@ function printThermalInvoice(button) {
           const values = Object.values(row).map(val => {
             // إذا كانت القيمة رقم، نتركها كما هي
             // إذا كانت نص، نضعها بين علامات تنصيص
-            if (typeof val === 'number') {
+            if (typeof val === 'number' || !isNaN(val)) {
               return val;
             }
             return `"${val}"`;
@@ -2462,8 +2596,9 @@ function printThermalInvoice(button) {
               </select>
             </div>
             <div>
-              <label class="block mb-2 font-bold text-gray-700">المخزون</label>
-              <input type="number" id="newProductStock" value="0" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <div><label class="block mb-2 font-bold text-gray-700">المخزون</label> 
+              <input type="text" id="newProductStock" value="0" readonly class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none bg-white cursor-pointer" onclick="showNumericKeypad(this)">
+
             </div>
           </div>
           <div class="flex gap-3 mt-6">
@@ -3240,6 +3375,95 @@ function toggleProductSelection(productId, categoryId) {
         showToast('تم حذف الكاشير بنجاح');
       }
     }
+
+
+    function showNumericKeypad(inputField) {
+  if (document.querySelector('.numeric-keypad-overlay')) return;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'numeric-keypad-overlay';
+  overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+  
+  const keypad = document.createElement('div');
+  keypad.style.cssText = 'background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);';
+  
+  const display = document.createElement('input');
+  display.type = 'text';
+  display.value = inputField.value || '0';
+  display.readOnly = true;
+  display.style.cssText = 'width: 100%; font-size: 32px; text-align: center; padding: 15px; margin-bottom: 15px; border: 2px solid #2563eb; border-radius: 8px; font-weight: bold;';
+  
+  const buttonsContainer = document.createElement('div');
+  buttonsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 300px;';
+
+  
+  const buttons = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', 'مسح', 'موافق'];
+
+  
+  buttons.forEach(btn => {
+    const button = document.createElement('button');
+    button.textContent = btn;
+    button.style.cssText = 'padding: 20px; font-size: 24px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s;';
+    
+    if (btn === 'موافق') {
+      button.style.background = '#22c55e';
+      button.style.color = 'white';
+    } else if (btn === 'مسح') {
+      button.style.background = '#ef4444';
+      button.style.color = 'white';
+    } else {
+      button.style.background = '#e5e7eb';
+      button.style.color = '#1f2937';
+    }
+    
+    button.onmouseover = () => {
+      button.style.transform = 'scale(1.05)';
+      button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+    };
+    
+    button.onmouseout = () => {
+      button.style.transform = 'scale(1)';
+      button.style.boxShadow = 'none';
+    };
+    
+    button.onclick = () => {
+  if (btn === 'موافق') {
+    inputField.value = display.value;
+    overlay.remove();
+  } else if (btn === 'مسح') {
+    display.value = '0';
+  } else if (btn === '.') {
+    // إذا كان الرقم 0، يصبح 0.
+    if (display.value === '0') {
+      display.value = '0.';
+    } 
+    // إذا لم يكن هناك فاصلة بالفعل
+    else if (!display.value.includes('.')) {
+      display.value += '.';
+    }
+  } else {
+    // إذا كان الرقم 0، استبدله بالرقم الجديد
+    if (display.value === '0') {
+      display.value = btn;
+    } else {
+      display.value += btn;
+    }
+  }
+};
+    
+    buttonsContainer.appendChild(button);
+  });
+  
+  keypad.appendChild(display);
+  keypad.appendChild(buttonsContainer);
+  overlay.appendChild(keypad);
+  
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
+  
+  document.body.appendChild(overlay);
+}
 
     // Initialize App
     renderHome();
