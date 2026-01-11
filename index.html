@@ -1737,87 +1737,87 @@ function printThermalInvoice(button) {
 
     // Orders Section
     function renderOrdersSection() {
-      return `
-        <div>
-          <div class="flex justify-between items-center mb-6">
-          <h2 class="text-3xl font-bold text-blue-600">الطلبات</h2>
-          <div class="flex gap-3">
-           <button onclick="printAllVisibleInvoices()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة الفواتير</button>
-            <h2 class="text-3xl font-bold text-blue-600">الطلبات</h2>
-               <button onclick="exportToExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+  return `
+    <div>
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold text-blue-600">الطلبات</h2>
+        <div class="flex gap-3">
+          <button onclick="printAllVisibleInvoices()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة الفواتير</button>
+          <button onclick="exportToExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+        </div>
+      </div>
+      
+      <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
+            <input type="date" id="filterFrom" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
           </div>
-          
-          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
-                <input type="date" id="filterFrom" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
-                <input type="date" id="filterTo" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">الكاشير</label>
-                <select id="filterCashier" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                  <option value="">الكل</option>
-                  ${allCashiers.map(c => `<option value="${c.code}">${c.name}</option>`).join('')}
-                </select>
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">الفرع</label>
-                <select id="filterBranch" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                  <option value="">الكل</option>
-                  <option value="الفرع الرئيسي">الفرع الرئيسي</option>
-                  <option value="أبو الحصانية">أبو الحصانية</option>
-                  <option value="اليرموك">اليرموك</option>
-                </select>
-              </div>
-            </div>
-            <button onclick="applyFilters()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
+            <input type="date" id="filterTo" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
           </div>
-          
-          <div class="bg-white p-6 rounded-xl shadow-lg">
-            <input type="text" id="orderSearch" placeholder="بحث..." oninput="filterOrders()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
-            <div class="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr>
-                    <th>رقم الفاتورة</th>
-                    <th>العميل</th>
-                    <th>الهاتف</th>
-                    <th>التاريخ</th>
-                    <th>الكاشير</th>
-                    <th>الفرع</th>
-                    <th>طريقة الدفع</th>
-                    <th>المجموع</th>
-                    <th>الإجراءات</th>
-                  </tr>
-                </thead>
-                <tbody id="ordersBody">
-                  ${allOrders.map(order => `
-                    <tr class="order-row" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
-                      <td>${order.invoiceNumber || 'N/A'}</td>
-                      <td>${order.customerName || 'N/A'}</td>
-                      <td>${order.phoneNumber || 'N/A'}</td>
-                      <td>${formatDate(order.timestamp)}</td>
-                      <td>${order.cashier || 'N/A'}</td>
-                      <td>${order.branch || 'N/A'}</td>
-                      <td>${order.paymentMethod === 'cash' ? '💵 كاش' : order.paymentMethod === 'online' ? '💳 أونلاين' : 'N/A'}</td>
-                      <td>${order.total ? order.total.toFixed(3) : '0.000'} د.ك</td>
-                      <td>
-                        <button onclick="viewOrder('${order.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition">عرض</button>
-                        <button onclick="confirmDeleteOrder('${order.id}')" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition">حذف</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">الكاشير</label>
+            <select id="filterCashier" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <option value="">الكل</option>
+              ${allCashiers.map(c => `<option value="${c.code}">${c.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">الفرع</label>
+            <select id="filterBranch" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <option value="">الكل</option>
+              <option value="الفرع الرئيسي">الفرع الرئيسي</option>
+              <option value="أبو الحصانية">أبو الحصانية</option>
+              <option value="اليرموك">اليرموك</option>
+            </select>
           </div>
         </div>
-      `;
-    }
+        <button onclick="applyFilters()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+      </div>
+      
+      <div class="bg-white p-6 rounded-xl shadow-lg">
+        <input type="text" id="orderSearch" placeholder="بحث..." oninput="filterOrders()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+        <div class="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>رقم الفاتورة</th>
+                <th>العميل</th>
+                <th>الهاتف</th>
+                <th>التاريخ</th>
+                <th>الكاشير</th>
+                <th>الفرع</th>
+                <th>طريقة الدفع</th>
+                <th>المجموع</th>
+                <th>الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody">
+              ${allOrders.map(order => `
+                <tr class="order-row" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
+                  <td>${order.invoiceNumber || 'N/A'}</td>
+                  <td>${order.customerName || 'N/A'}</td>
+                  <td>${order.phoneNumber || 'N/A'}</td>
+                  <td>${formatDate(order.timestamp)}</td>
+                  <td>${order.cashier || 'N/A'}</td>
+                  <td>${order.branch || 'N/A'}</td>
+                  <td>${order.paymentMethod === 'cash' ? '💵 كاش' : order.paymentMethod === 'online' ? '💳 أونلاين' : 'N/A'}</td>
+                  <td>${order.total ? order.total.toFixed(3) : '0.000'} د.ك</td>
+                  <td>
+                    <button onclick="viewOrder('${order.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition">عرض</button>
+                    <button onclick="confirmDeleteOrder('${order.id}')" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition">حذف</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
     function filterOrders() {
       const searchTerm = document.getElementById('orderSearch').value.toLowerCase();
@@ -1862,112 +1862,342 @@ function printThermalInvoice(button) {
     }
 
         function exportToExcel() {
-      const rows = document.querySelectorAll('.order-row');
-      let totalNet = 0;
-      let totalDelivery = 0;
-      let totalFinal = 0;
-      let data = [];
+  const rows = document.querySelectorAll('.order-row');
+  let totalNet = 0;
+  let totalDelivery = 0;
+  let totalFinal = 0;
+  let data = [];
+  
+  rows.forEach(row => {
+    if (row.style.display !== 'none') {
+      const cells = row.cells;
       
-      rows.forEach(row => {
-        if (row.style.display !== 'none') {
-          const cells = row.cells;
-          
-          // استخراج بيانات الطلب من الصف
-          const orderId = cells[0].textContent.trim().replace('#', '');
-          const order = orders.find(o => o.invoiceNumber === orderId);
-          
-          if (order) {
-            // حساب الأسعار
-            const deliveryFee = parseFloat(order.deliveryFee) || 0;
-            const netAmount = parseFloat(order.total) - deliveryFee;
-            const finalTotal = parseFloat(order.total) || 0;
-            
-            totalNet += netAmount;
-            totalDelivery += deliveryFee;
-            totalFinal += finalTotal;
-            
-            // بناء الكائن بناءً على وجود عمود طريقة الدفع
-            const totalCellIndex = cells.length === 9 ? 7 : 6;
-            
-            if (cells.length === 9) {
-              // مع طريقة الدفع
-              data.push({
-                'رقم الفاتورة': cells[0].textContent.trim(),
-                'العميل': cells[1].textContent.trim(),
-                'الهاتف': cells[2].textContent.trim(),
-                'التاريخ': cells[3].textContent.trim(),
-                'الكاشير': cells[4].textContent.trim(),
-                'الفرع': cells[5].textContent.trim(),
-                'طريقة الدفع': cells[6].textContent.trim(),
-                'صافي الفاتورة': netAmount.toFixed(3),
-                'رسوم التوصيل': deliveryFee.toFixed(3),
-                'الإجمالي': finalTotal.toFixed(3)
-              });
-            } else {
-              // بدون طريقة الدفع
-              data.push({
-                'رقم الفاتورة': cells[0].textContent.trim(),
-                'العميل': cells[1].textContent.trim(),
-                'الهاتف': cells[2].textContent.trim(),
-                'التاريخ': cells[3].textContent.trim(),
-                'الكاشير': cells[4].textContent.trim(),
-                'الفرع': cells[5].textContent.trim(),
-                'صافي الفاتورة': netAmount.toFixed(3),
-                'رسوم التوصيل': deliveryFee.toFixed(3),
-                'الإجمالي': finalTotal.toFixed(3)
-              });
-            }
+      // استخراج بيانات الطلب من الصف
+      const orderId = cells[0].textContent.trim().replace('#', '');
+      const order = allOrders.find(o => o.invoiceNumber === orderId);
+      
+      if (order) {
+        // حساب الأسعار
+        const deliveryFee = parseFloat(order.deliveryFee) || parseFloat(order.deliveryPrice) || 0;
+        const netAmount = parseFloat(order.total) - deliveryFee;
+        const finalTotal = parseFloat(order.total) || 0;
+        
+        totalNet += netAmount;
+        totalDelivery += deliveryFee;
+        totalFinal += finalTotal;
+        
+        // بناء الكائن بناءً على وجود عمود طريقة الدفع
+        const totalCellIndex = cells.length === 9 ? 7 : 6;
+        
+        if (cells.length === 9) {
+          // مع طريقة الدفع
+          data.push({
+            'رقم الفاتورة': cells[0].textContent.trim(),
+            'العميل': cells[1].textContent.trim(),
+            'الهاتف': cells[2].textContent.trim(),
+            'التاريخ': cells[3].textContent.trim(),
+            'الكاشير': cells[4].textContent.trim(),
+            'الفرع': cells[5].textContent.trim(),
+            'طريقة الدفع': cells[6].textContent.trim(),
+            'صافي الفاتورة': netAmount.toFixed(3),
+            'رسوم التوصيل': deliveryFee.toFixed(3),
+            'الإجمالي': finalTotal.toFixed(3)
+          });
+        } else {
+          // بدون طريقة الدفع
+          data.push({
+            'رقم الفاتورة': cells[0].textContent.trim(),
+            'العميل': cells[1].textContent.trim(),
+            'الهاتف': cells[2].textContent.trim(),
+            'التاريخ': cells[3].textContent.trim(),
+            'الكاشير': cells[4].textContent.trim(),
+            'الفرع': cells[5].textContent.trim(),
+            'صافي الفاتورة': netAmount.toFixed(3),
+            'رسوم التوصيل': deliveryFee.toFixed(3),
+            'الإجمالي': finalTotal.toFixed(3)
+          });
+        }
+      }
+    }
+  });
+  
+  if (data.length === 0) {
+    showToast('لا توجد بيانات للتصدير');
+    return;
+  }
+  
+  // إنشاء جدول HTML منسق لـ Excel
+  let html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <style>
+        table { border-collapse: collapse; width: 100%; direction: rtl; }
+        th { background-color: #4472C4; color: white; font-weight: bold; padding: 12px; border: 1px solid #ddd; text-align: center; }
+        td { padding: 10px; border: 1px solid #ddd; text-align: center; }
+        .total-row { background-color: #FFC000; font-weight: bold; font-size: 14px; }
+        tr:nth-child(even) { background-color: #F2F2F2; }
+      </style>
+    </head>
+    <body>
+      <table dir="rtl">
+        <thead>
+          <tr>
+            ${Object.keys(data[0]).map(key => `<th>${key}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${data.map(row => `
+            <tr>
+              ${Object.values(row).map(val => `<td>${val}</td>`).join('')}
+            </tr>
+          `).join('')}
+          <tr class="total-row">
+            ${Object.keys(data[0]).map((key, index) => {
+              if (key === 'الفرع' || key === 'طريقة الدفع') {
+                return `<td>إجمالي الإيرادات</td>`;
+              } else if (key === 'صافي الفاتورة') {
+                return `<td>${totalNet.toFixed(3)}</td>`;
+              } else if (key === 'رسوم التوصيل') {
+                return `<td>${totalDelivery.toFixed(3)}</td>`;
+              } else if (key === 'الإجمالي') {
+                return `<td>${totalFinal.toFixed(3)}</td>`;
+              } else {
+                return `<td></td>`;
+              }
+            }).join('')}
+          </tr>
+        </tbody>
+      </table>
+    </body>
+    </html>
+  `;
+  
+  // تحميل كملف Excel
+  const blob = new Blob(['\ufeff', html], { 
+    type: 'application/vnd.ms-excel' 
+  });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `تقرير_الطلبات_${new Date().toLocaleDateString('ar-SA').replace(/\//g, '-')}.xls`;
+  link.click();
+  
+  showToast('تم تحميل ملف Excel بنجاح');
+}
+
+    function printAllVisibleInvoices() {
+  const rows = document.querySelectorAll('.order-row');
+  let visibleOrders = [];
+  
+  rows.forEach(row => {
+    if (row.style.display !== 'none') {
+      const orderId = row.cells[0].textContent.trim().replace('#', '');
+      const order = allOrders.find(o => o.invoiceNumber === orderId);
+      if (order) {
+        visibleOrders.push(order);
+      }
+    }
+  });
+  
+  if (visibleOrders.length === 0) {
+    showToast('لا توجد فواتير للطباعة');
+    return;
+  }
+  
+  // إنشاء نافذة الطباعة
+  const printWindow = window.open('', '_blank');
+  
+  let allInvoicesHtml = `
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>طباعة الفواتير</title>
+      <style>
+        @page {
+          size: 80mm auto;
+          margin: 0;
+        }
+        body {
+          font-family: 'Tajawal', Arial, sans-serif;
+          margin: 0;
+          padding: 0;
+        }
+        .invoice-page {
+          width: 80mm;
+          padding: 10mm;
+          page-break-after: always;
+          background: white;
+        }
+        .invoice-page:last-child {
+          page-break-after: auto;
+        }
+        .header {
+          text-align: center;
+          border-bottom: 2px dashed #000;
+          padding-bottom: 10px;
+          margin-bottom: 15px;
+        }
+        .header h1 {
+          margin: 0;
+          font-size: 24px;
+          font-weight: bold;
+        }
+        .header p {
+          margin: 5px 0;
+          font-size: 12px;
+        }
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          margin: 8px 0;
+          font-size: 14px;
+        }
+        .info-row strong {
+          font-weight: bold;
+        }
+        .items-table {
+          width: 100%;
+          margin: 15px 0;
+          border-collapse: collapse;
+        }
+        .items-table th {
+          background: #f0f0f0;
+          padding: 8px;
+          text-align: right;
+          font-size: 12px;
+          border-bottom: 2px solid #000;
+        }
+        .items-table td {
+          padding: 8px;
+          text-align: right;
+          font-size: 12px;
+          border-bottom: 1px dashed #ccc;
+        }
+        .totals {
+          margin-top: 15px;
+          padding-top: 10px;
+          border-top: 2px dashed #000;
+        }
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          margin: 8px 0;
+          font-size: 14px;
+        }
+        .total-row.final {
+          font-size: 18px;
+          font-weight: bold;
+          margin-top: 10px;
+        }
+        .footer {
+          text-align: center;
+          margin-top: 20px;
+          padding-top: 10px;
+          border-top: 2px dashed #000;
+          font-size: 12px;
+        }
+        @media print {
+          body {
+            margin: 0;
+            padding: 0;
           }
         }
-      });
-      
-      // إضافة سطر الإجمالي
-      if (data.length > 0) {
-        const emptyRow = {};
-        Object.keys(data[0]).forEach(key => {
-          if (key === 'الفرع' || key === 'طريقة الدفع') {
-            emptyRow[key] = 'إجمالي الإيرادات';
-          } else if (key === 'صافي الفاتورة') {
-            emptyRow[key] = totalNet.toFixed(3);
-          } else if (key === 'رسوم التوصيل') {
-            emptyRow[key] = totalDelivery.toFixed(3);
-          } else if (key === 'الإجمالي') {
-            emptyRow[key] = totalFinal.toFixed(3);
-          } else {
-            emptyRow[key] = '';
-          }
-        });
-        data.push(emptyRow);
-      }
-      
-      // تحويل إلى CSV
-      let csv = '\uFEFF'; // UTF-8 BOM
-      if (data.length > 0) {
-        const headers = Object.keys(data[0]);
-        csv += headers.join(',') + '\n';
+      </style>
+    </head>
+    <body>
+  `;
+  
+  // إضافة كل فاتورة
+  visibleOrders.forEach((order, index) => {
+    const deliveryFee = parseFloat(order.deliveryFee) || parseFloat(order.deliveryPrice) || 0;
+    const netAmount = parseFloat(order.total) - deliveryFee;
+    
+    allInvoicesHtml += `
+      <div class="invoice-page">
+        <div class="header">
+          <h1>🍕 ${order.branch || 'المطعم'}</h1>
+          <p>فاتورة رقم: <strong>#${order.invoiceNumber}</strong></p>
+          <p>${new Date(order.timestamp).toLocaleString('ar-SA')}</p>
+        </div>
         
-        data.forEach(row => {
-          const values = Object.values(row).map(val => {
-            // إذا كانت القيمة رقم، نتركها كما هي
-            // إذا كانت نص، نضعها بين علامات تنصيص
-            if (typeof val === 'number' || !isNaN(val)) {
-              return val;
-            }
-            return `"${val}"`;
-          });
-          csv += values.join(',') + '\n';
-        });
-      }
-      
-      // تحميل الملف
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `طلبات_${new Date().toLocaleDateString('ar-SA')}.csv`;
-      link.click();
-      
-      showToast('تم تحميل التقرير بنجاح');
-    }
+        <div class="info-row">
+          <span><strong>العميل:</strong> ${order.customerName}</span>
+        </div>
+        <div class="info-row">
+          <span><strong>الهاتف:</strong> ${order.phoneNumber}</span>
+        </div>
+        ${order.address ? `
+        <div class="info-row">
+          <span><strong>العنوان:</strong> ${order.address}</span>
+        </div>
+        ` : ''}
+        <div class="info-row">
+          <span><strong>الكاشير:</strong> ${order.cashier}</span>
+        </div>
+        <div class="info-row">
+          <span><strong>طريقة الدفع:</strong> ${order.paymentMethod === 'cash' ? '💵 كاش' : order.paymentMethod === 'online' ? '💳 أونلاين' : 'N/A'}</span>
+        </div>
+        
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>المنتج</th>
+              <th style="text-align: center;">الكمية</th>
+              <th style="text-align: left;">السعر</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(order.items || []).map(item => `
+              <tr>
+                <td>${item.productName}</td>
+                <td style="text-align: center;">${item.quantity} ${item.unit}</td>
+                <td style="text-align: left;">${(item.total || 0).toFixed(3)} د.ك</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div class="totals">
+          <div class="total-row">
+            <span>صافي الفاتورة:</span>
+            <span>${netAmount.toFixed(3)} د.ك</span>
+          </div>
+          ${deliveryFee > 0 ? `
+          <div class="total-row">
+            <span>رسوم التوصيل:</span>
+            <span>${deliveryFee.toFixed(3)} د.ك</span>
+          </div>
+          ` : ''}
+          <div class="total-row final">
+            <span>الإجمالي:</span>
+            <span>${parseFloat(order.total).toFixed(3)} د.ك</span>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>شكراً لزيارتكم 🌟</p>
+          <p>نتمنى لكم يوماً سعيداً</p>
+        </div>
+      </div>
+    `;
+  });
+  
+  allInvoicesHtml += `
+    </body>
+    </html>
+  `;
+  
+  printWindow.document.write(allInvoicesHtml);
+  printWindow.document.close();
+  
+  // الانتظار قليلاً ثم فتح نافذة الطباعة
+  setTimeout(() => {
+    printWindow.print();
+  }, 500);
+  
+  showToast(`جاري طباعة ${visibleOrders.length} فاتورة...`);
+}
 
     function viewOrder(orderId) {
       const order = allOrders.find(o => o.id === orderId);
