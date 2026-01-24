@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>نظام إدارة المطاعم</title>
-  <script src="/_sdk/element_sdk.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&amp;display=swap" rel="stylesheet">
@@ -169,7 +167,6 @@
     }
   </style>
   <style>@view-transition { navigation: auto; }</style>
-  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
  </head>
  <body>
   <div id="app"></div>
@@ -228,6 +225,11 @@
     function generateId() {
       return Date.now().toString(36) + Math.random().toString(36).substr(2);
     }
+
+    async function loadData() {
+  console.log("البيانات يتم تحديثها تلقائياً عبر نظام المراقب اللحظي.");
+  return true; 
+}
 
     function formatDate(timestamp) {
       const date = new Date(timestamp);
@@ -295,24 +297,26 @@
       return paddedNumber;
     }
 
-    // Load Data from Firebase
-    // دالة لإعداد المراقبين (Listeners) لـ Firebase
+    // 1. نظام المراقبة اللحظية
 function setupRealtimeListeners() {
-  // مراقبة الطلبات (Orders)
+  // مراقبة الطلبات
   db.ref('orders').on('value', (snapshot) => {
     allOrders = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
-    
-    // تحديث الشاشة فوراً إذا لم يكن هناك "مودال" (نافذة) مفتوحة لتجنب إزعاج المستخدم أثناء الكتابة
-    if (!document.querySelector('.modal-overlay')) {
-      refreshUI();
-    }
+    refreshUI(); // تحديث الشاشة فوراً عند أي تغيير
   });
 
-  // يمكنك إضافة مراقبين للأقسام الأخرى هنا بنفس الطريقة (المنتجات، العملاء، إلخ)
+  // مراقبة المنتجات
+  db.ref('products').on('value', (snapshot) => {
+    allProducts = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
 }
 
-// دالة ذكية لتحديث الواجهة بناءً على الصفحة الحالية
+// 2. دالة تحديث واجهة المستخدم بدون ريفريش
 function refreshUI() {
+  // لا تقم بتحديث الشاشة إذا كان المستخدم يفتح نافذة (Modal) لكي لا يضيع ما يكتبه
+  if (document.querySelector('.modal-overlay')) return;
+
   if (currentScreen === 'cashier') {
     renderCashier();
   } else if (currentScreen === 'accounting') {
@@ -4054,6 +4058,7 @@ function addSelectedProduct() {
 
 
     // Initialize App
+    setupRealtimeListeners();
     renderHome();
   </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b8b60cd22e47cc9',t:'MTc2NzUzNjQ0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
