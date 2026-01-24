@@ -583,20 +583,23 @@
                       </tr>
                     </thead>
                     <tbody>
-                      ${allOrders.filter(o => o.branch === currentBranch).map(order => `
-                        <tr>
-                          <td>${order.invoiceNumber}</td>
-                          <td>${order.customerName}</td>
-                          <td>${formatDate(order.timestamp)} ${formatTime(order.timestamp)}</td>
-                          <td>${order.total.toFixed(3)} د.ك</td>
-                          <td>
-                            <button onclick="reprintInvoice('${order.id}')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-                              🖨️ طباعة
-                            </button>
-                          </td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
+  ${allOrders
+    .filter(o => o.branch === currentBranch) // تصفية حسب الفرع أولاً
+    .sort((a, b) => b.timestamp - a.timestamp) // الترتيب من الأحدث (الأكبر) إلى الأقدم (الأصغر)
+    .map(order => `
+    <tr>
+      <td>${order.invoiceNumber}</td>
+      <td>${order.customerName}</td>
+      <td>${formatDate(order.timestamp)} ${formatTime(order.timestamp)}</td>
+      <td>${order.total.toFixed(3)} د.ك</td>
+      <td>
+        <button onclick="reprintInvoice('${order.id}')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+          🖨️ طباعة
+        </button>
+      </td>
+    </tr>
+  `).join('')}
+</tbody>
                   </table>
                 </div>
               </div>
