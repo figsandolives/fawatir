@@ -3847,37 +3847,44 @@ function calculateEditTotal() {
 }
 
 // حفظ التعديلات
+// حفظ التعديلات
 async function saveOrderEdit() {
-  // تحديث البيانات
+  // 1. تحديث البيانات الأساسية في الكائن
   currentEditingOrder.customerName = document.getElementById('editCustomerName').value.trim();
   currentEditingOrder.phoneNumber = document.getElementById('editPhoneNumber').value.trim();
   currentEditingOrder.address = document.getElementById('editAddress').value.trim();
   currentEditingOrder.deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
   currentEditingOrder.deliveryPrice = currentEditingOrder.deliveryFee;
   currentEditingOrder.total = calculateEditTotal();
-  
-  // التحقق من البيانات
-  if (!currentEditingOrder.customerName) {
-    showToast('أدخل اسم العميل');
+
+  // 2. التحقق من صحة البيانات
+  if (!currentEditingOrder.customerName || !currentEditingOrder.phoneNumber) {
+    showToast('الرجاء إدخال اسم العميل ورقم الهاتف', true);
     return;
   }
-  if (!currentEditingOrder.phoneNumber) {
-    showToast('أدخل رقم الهاتف');
-    return;
-  }
+
   if (currentEditingOrder.items.length === 0) {
-    showToast('يجب أن يحتوي الطلب على منتج واحد على الأقل');
+    showToast('يجب أن تحتوي الفاتورة على منتج واحد على الأقل', true);
     return;
   }
-  
-  // حفظ في قاعدة البيانات
-  const result = await window.dataSdk.update(currentEditingOrder);
-  
-  if (result.isOk) {
-    showToast('تم تحديث الفاتورة بنجاح');
+
+  try {
+    // 3. الحفظ المباشر في Firebase باستخدام الكائن db المعرف في كودك
+    const orderId = currentEditingOrder.id;
+    await db.ref(`orders/${orderId}`).set(currentEditingOrder);
+
+    // 4. تحديث البيانات محلياً في القائمة العامة
+    await loadData(); 
+
+    showToast('تم تحديث الفاتورة بنجاح ✅');
+
+    // 5. إغلاق النافذة وإعادة رسم صفحة الطلبات لرؤية التغيير فوراً
     closeEditOrderModal();
-  } else {
-    showToast('فشل تحديث الفاتورة: ' + result.error.message);
+    renderAccounting('orders'); 
+
+  } catch (error) {
+    console.error('Error updating order:', error);
+    showToast('فشل في تحديث البيانات: ' + error.message, true);
   }
 }
 
