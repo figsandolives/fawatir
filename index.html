@@ -204,6 +204,7 @@
 
     // Global State
     let currentScreen = 'home';
+    let currentAccountingSection = 'orders';
     let allProducts = [];
     let parsedExcelData = [];
     let allCategories = [];
@@ -295,29 +296,29 @@
     }
 
     // Load Data from Firebase
-    async function loadData() {
-      try {
-        const [productsSnap, categoriesSnap, customersSnap, ordersSnap, cashiersSnap] = await Promise.all([
-          db.ref('products').once('value'),
-          db.ref('categories').once('value'),
-          db.ref('customers').once('value'),
-          db.ref('orders').once('value'),
-          db.ref('cashiers').once('value')
-        ]);
-
-        allProducts = productsSnap.val() ? Object.entries(productsSnap.val()).map(([id, data]) => ({ id, ...data })) : [];
-        allCategories = categoriesSnap.val() ? Object.entries(categoriesSnap.val()).map(([id, data]) => ({ id, ...data })) : [];
-        allCustomers = customersSnap.val() ? Object.entries(customersSnap.val()).map(([id, data]) => ({ id, ...data })) : [];
-        allOrders = ordersSnap.val() ? Object.entries(ordersSnap.val()).map(([id, data]) => ({ id, ...data })) : [];
-        allCashiers = cashiersSnap.val() ? Object.entries(cashiersSnap.val()).map(([id, data]) => ({ id, ...data })) : [];
-
-        return true;
-      } catch (error) {
-        console.error('Error loading data:', error);
-        showToast('خطأ في تحميل البيانات', true);
-        return false;
-      }
+    // دالة لإعداد المراقبين (Listeners) لـ Firebase
+function setupRealtimeListeners() {
+  // مراقبة الطلبات (Orders)
+  db.ref('orders').on('value', (snapshot) => {
+    allOrders = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    
+    // تحديث الشاشة فوراً إذا لم يكن هناك "مودال" (نافذة) مفتوحة لتجنب إزعاج المستخدم أثناء الكتابة
+    if (!document.querySelector('.modal-overlay')) {
+      refreshUI();
     }
+  });
+
+  // يمكنك إضافة مراقبين للأقسام الأخرى هنا بنفس الطريقة (المنتجات، العملاء، إلخ)
+}
+
+// دالة ذكية لتحديث الواجهة بناءً على الصفحة الحالية
+function refreshUI() {
+  if (currentScreen === 'cashier') {
+    renderCashier();
+  } else if (currentScreen === 'accounting') {
+    renderAccounting(currentAccountingSection);
+  }
+}
 
     // Save Functions
     async function saveProduct(product) {
@@ -1727,16 +1728,63 @@ function printThermalInvoice(button) {
       renderHome();
     }
 
-    function renderAccountingContent(section) {
-      switch(section) {
-        case 'orders': return renderOrdersSection();
-        case 'customers': return renderCustomersSection();
-        case 'products': return renderProductsSection();
-        case 'categories': return renderCategoriesSection();
-        case 'devices': return renderDevicesSection();
-        default: return '';
-      }
-    }
+    // 1. الدالة الرئيسية للمحاسبة (تقوم بحفظ القسم الحالي ورسم الهيكل)
+function renderAccounting(section) {
+  // حفظ القسم الحالي في المتغير العام لكي تعرف دالة التحديث اللحظي ماذا تُحدث
+  currentAccountingSection = section; 
+  
+  const app = document.getElementById('app');
+  
+  app.innerHTML = `
+    <div class="flex h-full">
+      <div class="w-64 bg-gray-800 text-white p-6 no-print">
+        <h2 class="text-2xl font-bold mb-8">📊 المحاسبة</h2>
+        <div class="space-y-2">
+          <div class="sidebar-item ${section === 'orders' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('orders')">
+            📦 الطلبات
+          </div>
+          <div class="sidebar-item ${section === 'customers' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('customers')">
+            👥 العملاء
+          </div>
+          <div class="sidebar-item ${section === 'products' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('products')">
+            🛍️ المنتجات
+          </div>
+          <div class="sidebar-item ${section === 'categories' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('categories')">
+            📁 الأقسام
+          </div>
+          <div class="sidebar-item ${section === 'devices' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('devices')">
+            🖥️ الأجهزة والكاشير
+          </div>
+        </div>
+        <button onclick="logout()" class="w-full mt-8 bg-red-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-red-700 transition">خروج</button>
+      </div>
+      
+      <div class="flex-1 p-8 overflow-y-auto bg-gray-50">
+        <div id="contentArea">
+          ${renderAccountingContent(section)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// 2. الدالة المساعدة (تختار أي قسم يتم عرضه داخل منطقة المحتوى)
+function renderAccountingContent(section) {
+  switch(section) {
+    case 'orders': 
+      return renderOrdersSection();
+    case 'customers': 
+      return renderCustomersSection();
+    case 'products': 
+      return renderProductsSection();
+    case 'categories': 
+      return renderCategoriesSection();
+    case 'devices': 
+      return renderDevicesSection();
+    default: 
+      return '<div class="text-center py-10 text-gray-500">الرجاء اختيار قسم من القائمة</div>';
+  }
+}
 
     // Orders Section
     function renderOrdersSection() {
