@@ -302,15 +302,33 @@
 
     // 1. نظام المراقبة اللحظية
 function setupRealtimeListeners() {
-  // مراقبة الطلبات
+  // 1. مراقبة الطلبات
   db.ref('orders').on('value', (snapshot) => {
     allOrders = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
-    refreshUI(); // تحديث الشاشة فوراً عند أي تغيير
+    refreshUI();
   });
 
-  // مراقبة المنتجات
+  // 2. مراقبة الكاشيرات (هذا هو الجزء الذي كان ينقصك)
+  db.ref('cashiers').on('value', (snapshot) => {
+    allCashiers = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 3. مراقبة المنتجات
   db.ref('products').on('value', (snapshot) => {
     allProducts = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 4. مراقبة العملاء
+  db.ref('customers').on('value', (snapshot) => {
+    allCustomers = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 5. مراقبة الأقسام (Categories)
+  db.ref('categories').on('value', (snapshot) => {
+    allCategories = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
     refreshUI();
   });
 }
