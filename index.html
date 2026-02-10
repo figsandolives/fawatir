@@ -224,10 +224,17 @@
     let salesReportSelectedProductId = '';
     let salesReportFromDate = '';
     let salesReportToDate = '';
+    let salesReportMode = 'single';
+    let salesReportProductSource = 'manual';
+    let salesReportMultiSearchTerm = '';
+    let salesReportMultiSelectedProductIds = [];
+    let salesReportMainCategoryId = '';
+    let salesReportSubCategoryId = '';
     let salesReportSelectedProduct = null;
     let salesReportResults = [];
     let salesReportCurrentBranch = '';
     let salesReportBranchRows = [];
+    let salesReportCurrentDetailProduct = null;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -2574,27 +2581,52 @@ function renderAccountingContent(section) {
 
     // Sales Report Section
     function renderSalesReportSection() {
-      const searchTerm = normalizeText(salesReportSearchTerm);
-      const filteredProducts = allProducts
-        .filter(product => {
-          if (!searchTerm) return true;
-          const nameAr = normalizeText(product.nameAr);
-          const nameEn = normalizeText(product.nameEn);
-          return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
-        })
-        .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'));
-      const productSuggestions = searchTerm ? filteredProducts.slice(0, 25) : [];
-      const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId) || null;
-
+      const isMultiMode = salesReportMode === 'multi';
       const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
       const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
+
+      const searchTerm = normalizeText(salesReportSearchTerm);
+      const singleProductSuggestions = searchTerm
+        ? allProducts
+            .filter(product => {
+              const nameAr = normalizeText(product.nameAr);
+              const nameEn = normalizeText(product.nameEn);
+              return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
+            })
+            .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'))
+            .slice(0, 25)
+        : [];
+      const selectedSingleProduct = allProducts.find(product => product.id === salesReportSelectedProductId) || null;
+
+      const multiSearchTerm = normalizeText(salesReportMultiSearchTerm);
+      const multiProductSuggestions = multiSearchTerm
+        ? allProducts
+            .filter(product => {
+              const nameAr = normalizeText(product.nameAr);
+              const nameEn = normalizeText(product.nameEn);
+              return nameAr.includes(multiSearchTerm) || nameEn.includes(multiSearchTerm);
+            })
+            .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'))
+            .slice(0, 25)
+        : [];
+      const selectedMultiProducts = allProducts.filter(product => salesReportMultiSelectedProductIds.includes(product.id));
+
+      const rootCategories = allCategories
+        .filter(category => !category.parentId)
+        .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'));
+      const subCategories = salesReportMainCategoryId
+        ? allCategories
+            .filter(category => category.parentId === salesReportMainCategoryId)
+            .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'))
+        : [];
+      const categoryProductsCount = getSalesReportCategoryProductIds().length;
 
       return `
         <div>
           <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <div>
               <h2 class="text-3xl font-bold text-blue-600">تقرير المبيعات</h2>
-              <p class="text-gray-600 mt-1">عرض مبيعات منتج محدد حسب الفروع</p>
+              <p class="text-gray-600 mt-1">تقرير مبيعات حسب المنتج والفرع مع تفاصيل الفواتير</p>
             </div>
             ${salesReportResults.length > 0 ? `
               <div class="flex gap-3">
@@ -2605,59 +2637,158 @@ function renderAccountingContent(section) {
           </div>
 
           <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div class="md:col-span-2">
-                <label class="block mb-2 font-bold text-gray-700">بحث المنتج واختياره</label>
-                <input
-                  type="text"
-                  id="salesReportProductSearch"
-                  value="${salesReportSearchTerm}"
-                  oninput="updateSalesReportProductSearch(this.value)"
-                  placeholder="اكتب اسم المنتج العربي أو الإنجليزي ثم اختر من النتائج"
-                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
-                >
-                <div id="salesReportProductSuggestions" class="mt-2 border border-gray-200 rounded-lg max-h-44 overflow-y-auto bg-white">
-                  ${searchTerm ? `
-                    ${productSuggestions.length > 0 ? productSuggestions.map(product => `
-                      <button
-                        type="button"
-                        onclick="selectSalesReportProduct('${product.id}')"
-                        class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportSelectedProductId === product.id ? 'bg-blue-100 font-bold text-blue-700' : ''}"
-                      >
-                        ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
-                      </button>
-                    `).join('') : `
-                      <div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>
-                    `}
-                  ` : `
-                    <div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>
-                  `}
-                </div>
-                <div id="salesReportSelectedProductLabel" class="mt-2 text-sm ${selectedProduct ? 'text-green-700 font-bold' : 'text-amber-700'}">
-                  ${selectedProduct ? `المنتج المختار: ${selectedProduct.nameAr || 'بدون اسم'} / ${selectedProduct.nameEn || 'No Name'}` : 'لم يتم اختيار منتج بعد'}
-                </div>
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
-                <input
-                  type="date"
-                  id="salesReportFromDate"
-                  value="${salesReportFromDate}"
-                  onchange="salesReportFromDate = this.value"
-                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
-                >
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
-                <input
-                  type="date"
-                  id="salesReportToDate"
-                  value="${salesReportToDate}"
-                  onchange="salesReportToDate = this.value"
-                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
-                >
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">نوع التقرير</label>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="setSalesReportMode('single')" class="px-4 py-2 rounded-lg font-bold transition ${salesReportMode === 'single' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">منتج واحد</button>
+                <button onclick="setSalesReportMode('multi')" class="px-4 py-2 rounded-lg font-bold transition ${salesReportMode === 'multi' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">مجموعة منتجات</button>
               </div>
             </div>
+
+            ${!isMultiMode ? `
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="md:col-span-2">
+                  <label class="block mb-2 font-bold text-gray-700">بحث المنتج واختياره</label>
+                  <input
+                    type="text"
+                    id="salesReportProductSearch"
+                    value="${salesReportSearchTerm}"
+                    oninput="updateSalesReportProductSearch(this.value)"
+                    placeholder="اكتب اسم المنتج العربي أو الإنجليزي ثم اختر من النتائج"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                  <div id="salesReportProductSuggestions" class="mt-2 border border-gray-200 rounded-lg max-h-44 overflow-y-auto bg-white">
+                    ${searchTerm ? `
+                      ${singleProductSuggestions.length > 0 ? singleProductSuggestions.map(product => `
+                        <button
+                          type="button"
+                          onclick="selectSalesReportProduct('${product.id}')"
+                          class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportSelectedProductId === product.id ? 'bg-blue-100 font-bold text-blue-700' : ''}"
+                        >
+                          ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
+                        </button>
+                      `).join('') : '<div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>'}
+                    ` : '<div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>'}
+                  </div>
+                  <div id="salesReportSelectedProductLabel" class="mt-2 text-sm ${selectedSingleProduct ? 'text-green-700 font-bold' : 'text-amber-700'}">
+                    ${selectedSingleProduct ? `المنتج المختار: ${selectedSingleProduct.nameAr || 'بدون اسم'} / ${selectedSingleProduct.nameEn || 'No Name'}` : 'لم يتم اختيار منتج بعد'}
+                  </div>
+                </div>
+                <div>
+                  <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
+                  <input
+                    type="date"
+                    id="salesReportFromDate"
+                    value="${salesReportFromDate}"
+                    onchange="salesReportFromDate = this.value"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                </div>
+                <div>
+                  <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
+                  <input
+                    type="date"
+                    id="salesReportToDate"
+                    value="${salesReportToDate}"
+                    onchange="salesReportToDate = this.value"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                </div>
+              </div>
+            ` : `
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="md:col-span-2">
+                  <label class="block mb-2 font-bold text-gray-700">طريقة اختيار المنتجات</label>
+                  <div class="flex flex-wrap gap-2">
+                    <button onclick="setSalesReportProductSource('manual')" class="px-4 py-2 rounded-lg font-bold transition ${salesReportProductSource === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">بحث واختيار</button>
+                    <button onclick="setSalesReportProductSource('category')" class="px-4 py-2 rounded-lg font-bold transition ${salesReportProductSource === 'category' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">حسب التصنيف</button>
+                  </div>
+                </div>
+                <div>
+                  <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
+                  <input
+                    type="date"
+                    id="salesReportFromDate"
+                    value="${salesReportFromDate}"
+                    onchange="salesReportFromDate = this.value"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                </div>
+                <div>
+                  <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
+                  <input
+                    type="date"
+                    id="salesReportToDate"
+                    value="${salesReportToDate}"
+                    onchange="salesReportToDate = this.value"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                </div>
+              </div>
+
+              ${salesReportProductSource === 'manual' ? `
+                <div class="mt-4">
+                  <label class="block mb-2 font-bold text-gray-700">بحث المنتجات واختيارها</label>
+                  <input
+                    type="text"
+                    id="salesReportMultiSearch"
+                    value="${salesReportMultiSearchTerm}"
+                    oninput="updateSalesReportMultiSearchTerm(this.value)"
+                    placeholder="اكتب اسم المنتج العربي أو الإنجليزي"
+                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                  >
+                  <div id="salesReportMultiSuggestions" class="mt-2 border border-gray-200 rounded-lg max-h-44 overflow-y-auto bg-white">
+                    ${multiSearchTerm ? `
+                      ${multiProductSuggestions.length > 0 ? multiProductSuggestions.map(product => `
+                        <button
+                          type="button"
+                          onclick="toggleSalesReportMultiProduct('${product.id}')"
+                          class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportMultiSelectedProductIds.includes(product.id) ? 'bg-blue-100 font-bold text-blue-700' : ''}"
+                        >
+                          ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
+                        </button>
+                      `).join('') : '<div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>'}
+                    ` : '<div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>'}
+                  </div>
+                  <div id="salesReportMultiSelectedCount" class="mt-2 text-sm font-bold ${selectedMultiProducts.length > 0 ? 'text-green-700' : 'text-amber-700'}">
+                    عدد المنتجات المختارة: ${selectedMultiProducts.length}
+                  </div>
+                  <div id="salesReportMultiSelectedProducts" class="mt-2 flex flex-wrap gap-2">
+                    ${selectedMultiProducts.length > 0 ? selectedMultiProducts.map(product => `
+                      <div class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2">
+                        <span>${product.nameAr || 'بدون اسم'}</span>
+                        <button type="button" onclick="removeSalesReportMultiProduct('${product.id}')" class="text-red-600 hover:text-red-800 transition">✕</button>
+                      </div>
+                    `).join('') : '<span class="text-sm text-gray-500">لا توجد منتجات مختارة.</span>'}
+                  </div>
+                </div>
+              ` : `
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block mb-2 font-bold text-gray-700">التصنيف الرئيسي</label>
+                    <select onchange="updateSalesReportMainCategory(this.value)" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                      <option value="">اختر التصنيف الرئيسي</option>
+                      ${rootCategories.map(category => `
+                        <option value="${category.id}" ${salesReportMainCategoryId === category.id ? 'selected' : ''}>${category.nameAr || 'بدون اسم'} / ${category.nameEn || 'No Name'}</option>
+                      `).join('')}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block mb-2 font-bold text-gray-700">التصنيف الفرعي (إن وجد)</label>
+                    <select onchange="updateSalesReportSubCategory(this.value)" ${!salesReportMainCategoryId ? 'disabled' : ''} class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none disabled:bg-gray-100 disabled:text-gray-400">
+                      <option value="">${subCategories.length > 0 ? 'كل التصنيفات الفرعية' : 'لا توجد تصنيفات فرعية'}</option>
+                      ${subCategories.map(category => `
+                        <option value="${category.id}" ${salesReportSubCategoryId === category.id ? 'selected' : ''}>${category.nameAr || 'بدون اسم'} / ${category.nameEn || 'No Name'}</option>
+                      `).join('')}
+                    </select>
+                  </div>
+                </div>
+                <div class="mt-2 text-sm ${categoryProductsCount > 0 ? 'text-green-700 font-bold' : 'text-amber-700'}">
+                  عدد المنتجات المطابقة للتصنيف: ${categoryProductsCount}
+                </div>
+              `}
+            `}
+
             <button onclick="runSalesReport()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">إظهار</button>
           </div>
 
@@ -2669,22 +2800,36 @@ function renderAccountingContent(section) {
               <div class="overflow-x-auto">
                 <table>
                   <thead>
-                    <tr>
-                      <th>اسم الفرع</th>
-                      <th>مرات البيع</th>
-                      <th>إيرادات المنتج</th>
-                    </tr>
+                    ${isMultiMode ? `
+                      <tr>
+                        <th>اسم المنتج بالعربي</th>
+                        <th>اسم المنتج بالإنجليزي</th>
+                        <th>اسم الفرع</th>
+                        <th>مرات البيع</th>
+                        <th>إيرادات المنتج</th>
+                      </tr>
+                    ` : `
+                      <tr>
+                        <th>اسم الفرع</th>
+                        <th>مرات البيع</th>
+                        <th>إيرادات المنتج</th>
+                      </tr>
+                    `}
                   </thead>
                   <tbody>
                     ${salesReportResults.map((row, index) => `
-                      <tr>
-                        <td>
-                          <button onclick="openSalesReportBranchDetails(${index})" class="text-blue-600 underline font-bold hover:text-blue-800 transition">
-                            ${row.branch}
-                          </button>
-                        </td>
-                        <td>${row.salesCount}</td>
-                        <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+                      <tr class="cursor-pointer hover:bg-blue-50 transition" onclick="openSalesReportBranchDetails(${index})" title="اضغط لعرض التفاصيل">
+                        ${isMultiMode ? `
+                          <td>${row.productNameAr}</td>
+                          <td>${row.productNameEn}</td>
+                          <td>${row.branch}</td>
+                          <td>${row.salesCount}</td>
+                          <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+                        ` : `
+                          <td>${row.branch}</td>
+                          <td>${row.salesCount}</td>
+                          <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+                        `}
                       </tr>
                     `).join('')}
                   </tbody>
@@ -2692,12 +2837,32 @@ function renderAccountingContent(section) {
               </div>
             ` : `
               <div class="text-center py-10 text-gray-500">
-                لا توجد نتائج حتى الآن. اختر المنتج وحدد الفترة ثم اضغط "إظهار".
+                لا توجد نتائج حتى الآن. حدد خيارات التقرير ثم اضغط "إظهار".
               </div>
             `}
           </div>
         </div>
       `;
+    }
+
+    function setSalesReportMode(mode) {
+      if (mode !== 'single' && mode !== 'multi') return;
+      salesReportMode = mode;
+      salesReportResults = [];
+      salesReportCurrentBranch = '';
+      salesReportBranchRows = [];
+      salesReportCurrentDetailProduct = null;
+      renderAccounting('salesReport');
+    }
+
+    function setSalesReportProductSource(source) {
+      if (source !== 'manual' && source !== 'category') return;
+      salesReportProductSource = source;
+      salesReportResults = [];
+      salesReportCurrentBranch = '';
+      salesReportBranchRows = [];
+      salesReportCurrentDetailProduct = null;
+      renderAccounting('salesReport');
     }
 
     function updateSalesReportProductSearch(value) {
@@ -2734,15 +2899,16 @@ function renderAccountingContent(section) {
       if (!suggestionsContainer || !selectedLabel) return;
 
       const searchTerm = normalizeText(salesReportSearchTerm);
-      const filteredProducts = allProducts
-        .filter(product => {
-          if (!searchTerm) return true;
-          const nameAr = normalizeText(product.nameAr);
-          const nameEn = normalizeText(product.nameEn);
-          return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
-        })
-        .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'));
-      const productSuggestions = searchTerm ? filteredProducts.slice(0, 25) : [];
+      const productSuggestions = searchTerm
+        ? allProducts
+            .filter(product => {
+              const nameAr = normalizeText(product.nameAr);
+              const nameEn = normalizeText(product.nameEn);
+              return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
+            })
+            .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'))
+            .slice(0, 25)
+        : [];
       const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId) || null;
 
       if (searchTerm) {
@@ -2769,6 +2935,136 @@ function renderAccountingContent(section) {
         : 'لم يتم اختيار منتج بعد';
     }
 
+    function updateSalesReportMultiSearchTerm(value) {
+      salesReportMultiSearchTerm = value;
+      renderSalesReportMultiProductPicker();
+    }
+
+    function toggleSalesReportMultiProduct(productId) {
+      if (!productId) return;
+      if (salesReportMultiSelectedProductIds.includes(productId)) {
+        salesReportMultiSelectedProductIds = salesReportMultiSelectedProductIds.filter(id => id !== productId);
+      } else {
+        salesReportMultiSelectedProductIds.push(productId);
+      }
+      renderSalesReportMultiProductPicker();
+    }
+
+    function removeSalesReportMultiProduct(productId) {
+      salesReportMultiSelectedProductIds = salesReportMultiSelectedProductIds.filter(id => id !== productId);
+      renderSalesReportMultiProductPicker();
+    }
+
+    function renderSalesReportMultiProductPicker() {
+      const suggestionsContainer = document.getElementById('salesReportMultiSuggestions');
+      const selectedContainer = document.getElementById('salesReportMultiSelectedProducts');
+      const selectedCount = document.getElementById('salesReportMultiSelectedCount');
+      if (!suggestionsContainer || !selectedContainer || !selectedCount) return;
+
+      const searchTerm = normalizeText(salesReportMultiSearchTerm);
+      const suggestions = searchTerm
+        ? allProducts
+            .filter(product => {
+              const nameAr = normalizeText(product.nameAr);
+              const nameEn = normalizeText(product.nameEn);
+              return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
+            })
+            .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'))
+            .slice(0, 25)
+        : [];
+      const selectedProducts = allProducts.filter(product => salesReportMultiSelectedProductIds.includes(product.id));
+
+      if (searchTerm) {
+        if (suggestions.length > 0) {
+          suggestionsContainer.innerHTML = suggestions.map(product => `
+            <button
+              type="button"
+              onclick="toggleSalesReportMultiProduct('${product.id}')"
+              class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportMultiSelectedProductIds.includes(product.id) ? 'bg-blue-100 font-bold text-blue-700' : ''}"
+            >
+              ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
+            </button>
+          `).join('');
+        } else {
+          suggestionsContainer.innerHTML = '<div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>';
+        }
+      } else {
+        suggestionsContainer.innerHTML = '<div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>';
+      }
+
+      selectedCount.className = `mt-2 text-sm font-bold ${selectedProducts.length > 0 ? 'text-green-700' : 'text-amber-700'}`;
+      selectedCount.textContent = `عدد المنتجات المختارة: ${selectedProducts.length}`;
+
+      selectedContainer.innerHTML = selectedProducts.length > 0
+        ? selectedProducts.map(product => `
+            <div class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2">
+              <span>${product.nameAr || 'بدون اسم'}</span>
+              <button type="button" onclick="removeSalesReportMultiProduct('${product.id}')" class="text-red-600 hover:text-red-800 transition">✕</button>
+            </div>
+          `).join('')
+        : '<span class="text-sm text-gray-500">لا توجد منتجات مختارة.</span>';
+    }
+
+    function updateSalesReportMainCategory(categoryId) {
+      salesReportMainCategoryId = categoryId;
+      salesReportSubCategoryId = '';
+      salesReportResults = [];
+      salesReportCurrentBranch = '';
+      salesReportBranchRows = [];
+      salesReportCurrentDetailProduct = null;
+      renderAccounting('salesReport');
+    }
+
+    function updateSalesReportSubCategory(categoryId) {
+      salesReportSubCategoryId = categoryId;
+      salesReportResults = [];
+      salesReportCurrentBranch = '';
+      salesReportBranchRows = [];
+      salesReportCurrentDetailProduct = null;
+      renderAccounting('salesReport');
+    }
+
+    function getSalesReportCategoryDescendantIds(categoryId) {
+      if (!categoryId) return [];
+      const children = allCategories.filter(category => category.parentId === categoryId);
+      let result = [];
+      children.forEach(child => {
+        result.push(child.id);
+        result = result.concat(getSalesReportCategoryDescendantIds(child.id));
+      });
+      return result;
+    }
+
+    function getSalesReportCategoryProductIds() {
+      if (!salesReportMainCategoryId) return [];
+
+      const targetCategoryId = salesReportSubCategoryId || salesReportMainCategoryId;
+      const relatedCategoryIds = [targetCategoryId, ...getSalesReportCategoryDescendantIds(targetCategoryId)];
+      const relatedSet = new Set(relatedCategoryIds);
+
+      return allProducts
+        .filter(product => relatedSet.has(product.categoryId))
+        .map(product => product.id);
+    }
+
+    function getSalesReportProductsForRun() {
+      if (salesReportMode === 'single') {
+        const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId);
+        return selectedProduct ? [selectedProduct] : [];
+      }
+
+      if (salesReportProductSource === 'manual') {
+        if (salesReportMultiSelectedProductIds.length === 0) return [];
+        const selectedSet = new Set(salesReportMultiSelectedProductIds);
+        return allProducts.filter(product => selectedSet.has(product.id));
+      }
+
+      const categoryProductIds = getSalesReportCategoryProductIds();
+      if (categoryProductIds.length === 0) return [];
+      const selectedSet = new Set(categoryProductIds);
+      return allProducts.filter(product => selectedSet.has(product.id));
+    }
+
     function isMatchingSalesReportItem(item, product) {
       if (!item || !product) return false;
 
@@ -2790,15 +3086,28 @@ function renderAccountingContent(section) {
     }
 
     function runSalesReport() {
-      if (!salesReportSelectedProductId) {
+      const selectedProducts = getSalesReportProductsForRun();
+
+      if (salesReportMode === 'single' && selectedProducts.length === 0) {
         showToast('يرجى اختيار منتج أولاً', true);
         return;
       }
 
-      const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId);
-      if (!selectedProduct) {
-        showToast('المنتج المحدد غير موجود', true);
-        return;
+      if (salesReportMode === 'multi') {
+        if (salesReportProductSource === 'manual' && selectedProducts.length === 0) {
+          showToast('يرجى اختيار منتج واحد على الأقل', true);
+          return;
+        }
+        if (salesReportProductSource === 'category') {
+          if (!salesReportMainCategoryId) {
+            showToast('يرجى اختيار التصنيف الرئيسي أولاً', true);
+            return;
+          }
+          if (selectedProducts.length === 0) {
+            showToast('لا توجد منتجات ضمن التصنيف المحدد', true);
+            return;
+          }
+        }
       }
 
       const fromTimestamp = salesReportFromDate ? new Date(`${salesReportFromDate}T00:00:00`).getTime() : null;
@@ -2809,6 +3118,7 @@ function renderAccountingContent(section) {
         return;
       }
 
+      const isMultiMode = salesReportMode === 'multi';
       const reportMap = {};
 
       allOrders.forEach(order => {
@@ -2817,46 +3127,54 @@ function renderAccountingContent(section) {
         if (toTimestamp && orderTimestamp > toTimestamp) return;
 
         const items = Array.isArray(order.items) ? order.items : [];
-        const matchingItems = items.filter(item => isMatchingSalesReportItem(item, selectedProduct));
-        if (matchingItems.length === 0) return;
+        if (items.length === 0) return;
 
-        const branch = order.branch || 'غير محدد';
-        if (!reportMap[branch]) {
-          reportMap[branch] = {
-            branch,
-            productNameAr: selectedProduct.nameAr || 'بدون اسم',
-            productNameEn: selectedProduct.nameEn || 'No Name',
-            salesCount: 0,
-            revenue: 0,
-            detailsRows: []
-          };
-        }
+        selectedProducts.forEach(product => {
+          const matchingItems = items.filter(item => isMatchingSalesReportItem(item, product));
+          if (matchingItems.length === 0) return;
 
-        const totalQuantityInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
-        const totalRevenueInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-        const firstItem = matchingItems[0] || {};
+          const branch = order.branch || 'غير محدد';
+          const key = isMultiMode ? `${product.id || product.nameAr || product.nameEn}::${branch}` : branch;
+          if (!reportMap[key]) {
+            reportMap[key] = {
+              productId: product.id || '',
+              productNameAr: product.nameAr || 'بدون اسم',
+              productNameEn: product.nameEn || 'No Name',
+              branch,
+              salesCount: 0,
+              revenue: 0,
+              detailsRows: []
+            };
+          }
 
-        reportMap[branch].salesCount += 1;
-        reportMap[branch].revenue += totalRevenueInInvoice;
-        reportMap[branch].detailsRows.push({
-          invoiceNumber: order.invoiceNumber || 'N/A',
-          productNameAr: firstItem.productName || selectedProduct.nameAr || 'N/A',
-          productNameEn: firstItem.productNameEn || selectedProduct.nameEn || 'N/A',
-          customerName: order.customerName || 'N/A',
-          cashierName: order.cashier || 'N/A',
-          quantity: totalQuantityInInvoice,
-          invoiceProductTotal: totalRevenueInInvoice,
-          timestamp: orderTimestamp
+          const totalQuantityInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+          const totalRevenueInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+
+          reportMap[key].salesCount += 1;
+          reportMap[key].revenue += totalRevenueInInvoice;
+          reportMap[key].detailsRows.push({
+            invoiceNumber: order.invoiceNumber || 'N/A',
+            customerName: order.customerName || 'N/A',
+            cashierName: order.cashier || 'N/A',
+            quantity: totalQuantityInInvoice,
+            invoiceProductTotal: totalRevenueInInvoice,
+            timestamp: orderTimestamp
+          });
         });
       });
 
-      salesReportSelectedProduct = selectedProduct;
+      if (salesReportMode === 'single') {
+        salesReportSelectedProduct = selectedProducts[0] || null;
+      }
+
       salesReportResults = Object.values(reportMap).sort((a, b) => {
         if (b.revenue !== a.revenue) return b.revenue - a.revenue;
-        return b.salesCount - a.salesCount;
+        if (b.salesCount !== a.salesCount) return b.salesCount - a.salesCount;
+        return (a.productNameAr || '').localeCompare((b.productNameAr || ''), 'ar');
       });
       salesReportCurrentBranch = '';
       salesReportBranchRows = [];
+      salesReportCurrentDetailProduct = null;
 
       renderAccounting('salesReport');
 
@@ -2868,11 +3186,16 @@ function renderAccountingContent(section) {
     function openSalesReportBranchDetails(index) {
       const selectedRow = salesReportResults[index];
       if (!selectedRow) {
-        showToast('تعذر فتح تفاصيل الفرع', true);
+        showToast('تعذر فتح التفاصيل', true);
         return;
       }
 
       salesReportCurrentBranch = selectedRow.branch;
+      salesReportCurrentDetailProduct = {
+        id: selectedRow.productId || '',
+        nameAr: selectedRow.productNameAr || '',
+        nameEn: selectedRow.productNameEn || ''
+      };
       salesReportBranchRows = selectedRow.detailsRows
         .slice()
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -2884,14 +3207,14 @@ function renderAccountingContent(section) {
       if (!salesReportCurrentBranch) {
         return `
           <div class="bg-white p-6 rounded-xl shadow-lg text-center">
-            <div class="text-gray-600 mb-4">لا يوجد فرع محدد لعرض التفاصيل.</div>
+            <div class="text-gray-600 mb-4">لا يوجد صف محدد لعرض التفاصيل.</div>
             <button onclick="renderAccounting('salesReport')" class="bg-gray-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-gray-800 transition">رجوع</button>
           </div>
         `;
       }
 
-      const selectedProductAr = salesReportSelectedProduct?.nameAr || 'غير محدد';
-      const selectedProductEn = salesReportSelectedProduct?.nameEn || 'Not Specified';
+      const detailProductAr = salesReportCurrentDetailProduct?.nameAr || salesReportSelectedProduct?.nameAr || 'غير محدد';
+      const detailProductEn = salesReportCurrentDetailProduct?.nameEn || salesReportSelectedProduct?.nameEn || 'Not Specified';
 
       return `
         <div>
@@ -2899,7 +3222,7 @@ function renderAccountingContent(section) {
             <div>
               <h2 class="text-3xl font-bold text-blue-600">تفاصيل مبيعات الفرع: ${salesReportCurrentBranch}</h2>
               <p class="text-gray-600 mt-1">
-                المنتج: ${selectedProductAr} / ${selectedProductEn} | الفترة: ${getSalesReportPeriodText()}
+                المنتج: ${detailProductAr} / ${detailProductEn} | الفترة: ${getSalesReportPeriodText()}
               </p>
             </div>
             <div class="flex gap-3">
@@ -2938,7 +3261,7 @@ function renderAccountingContent(section) {
                 </table>
               </div>
             ` : `
-              <div class="text-center py-10 text-gray-500">لا توجد تفاصيل متاحة لهذا الفرع.</div>
+              <div class="text-center py-10 text-gray-500">لا توجد تفاصيل متاحة لهذا الصف.</div>
             `}
           </div>
         </div>
@@ -2951,24 +3274,51 @@ function renderAccountingContent(section) {
         return;
       }
 
-      const headers = ['اسم الفرع', 'مرات البيع', 'إيرادات المنتج (د.ك)'];
-      const rowsHtml = salesReportResults.map(row => `
-        <tr>
-          <td>${row.branch}</td>
-          <td>${row.salesCount}</td>
-          <td>${formatNumberWithThreeDecimals(row.revenue)}</td>
-        </tr>
-      `).join('');
-
+      const isMultiMode = salesReportMode === 'multi';
       const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
       const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
-      const totalRow = `
-        <tr class="total-row">
-          <td>الإجمالي</td>
-          <td>${totalSalesCount}</td>
-          <td>${formatNumberWithThreeDecimals(totalRevenue)}</td>
-        </tr>
-      `;
+
+      let headers = [];
+      let rowsHtml = '';
+      let totalRow = '';
+
+      if (isMultiMode) {
+        headers = ['اسم المنتج بالعربي', 'اسم المنتج بالإنجليزي', 'اسم الفرع', 'مرات البيع', 'إيرادات المنتج (د.ك)'];
+        rowsHtml = salesReportResults.map(row => `
+          <tr>
+            <td>${row.productNameAr}</td>
+            <td>${row.productNameEn}</td>
+            <td>${row.branch}</td>
+            <td>${row.salesCount}</td>
+            <td>${formatNumberWithThreeDecimals(row.revenue)}</td>
+          </tr>
+        `).join('');
+        totalRow = `
+          <tr class="total-row">
+            <td>الإجمالي</td>
+            <td></td>
+            <td></td>
+            <td>${totalSalesCount}</td>
+            <td>${formatNumberWithThreeDecimals(totalRevenue)}</td>
+          </tr>
+        `;
+      } else {
+        headers = ['اسم الفرع', 'مرات البيع', 'إيرادات المنتج (د.ك)'];
+        rowsHtml = salesReportResults.map(row => `
+          <tr>
+            <td>${row.branch}</td>
+            <td>${row.salesCount}</td>
+            <td>${formatNumberWithThreeDecimals(row.revenue)}</td>
+          </tr>
+        `).join('');
+        totalRow = `
+          <tr class="total-row">
+            <td>الإجمالي</td>
+            <td>${totalSalesCount}</td>
+            <td>${formatNumberWithThreeDecimals(totalRevenue)}</td>
+          </tr>
+        `;
+      }
 
       const excelHtml = buildExcelHtml(headers, rowsHtml, totalRow);
       const today = new Date().toLocaleDateString('ar-SA').replace(/\//g, '-');
@@ -2996,7 +3346,8 @@ function renderAccountingContent(section) {
 
       const excelHtml = buildExcelHtml(headers, rowsHtml);
       const today = new Date().toLocaleDateString('ar-SA').replace(/\//g, '-');
-      downloadExcelHtml(excelHtml, `تفاصيل_تقرير_المبيعات_${salesReportCurrentBranch}_${today}.xls`);
+      const productCode = salesReportCurrentDetailProduct?.nameAr || salesReportSelectedProduct?.nameAr || 'منتج';
+      downloadExcelHtml(excelHtml, `تفاصيل_تقرير_المبيعات_${productCode}_${salesReportCurrentBranch}_${today}.xls`);
       showToast('تم تحميل تفاصيل التقرير (Excel)');
     }
 
@@ -3006,17 +3357,53 @@ function renderAccountingContent(section) {
         return;
       }
 
+      const isMultiMode = salesReportMode === 'multi';
+      const isCategorySource = salesReportProductSource === 'category';
       const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
       const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
       const printedAt = new Date().toLocaleString('ar-SA');
+      const mainCategory = allCategories.find(category => category.id === salesReportMainCategoryId);
+      const subCategory = allCategories.find(category => category.id === salesReportSubCategoryId);
+      const mainCategoryLabel = mainCategory
+        ? `${mainCategory.nameAr || 'بدون اسم'} / ${mainCategory.nameEn || 'No Name'}`
+        : 'غير محدد';
+      const subCategoryLabel = salesReportSubCategoryId
+        ? (subCategory ? `${subCategory.nameAr || 'بدون اسم'} / ${subCategory.nameEn || 'No Name'}` : 'غير محدد')
+        : 'كل التصنيفات الفرعية';
 
       const tableRowsHtml = salesReportResults.map(row => `
         <tr>
-          <td>${row.branch}</td>
-          <td>${row.salesCount}</td>
-          <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+          ${isMultiMode ? `
+            <td>${row.productNameAr}</td>
+            <td>${row.productNameEn}</td>
+            <td>${row.branch}</td>
+            <td>${row.salesCount}</td>
+            <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+          ` : `
+            <td>${row.branch}</td>
+            <td>${row.salesCount}</td>
+            <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+          `}
         </tr>
       `).join('');
+
+      const totalRowHtml = isMultiMode
+        ? `
+          <tr>
+            <td>الإجمالي</td>
+            <td></td>
+            <td></td>
+            <td>${totalSalesCount}</td>
+            <td>${formatNumberWithThreeDecimals(totalRevenue)} د.ك</td>
+          </tr>
+        `
+        : `
+          <tr>
+            <td>الإجمالي</td>
+            <td>${totalSalesCount}</td>
+            <td>${formatNumberWithThreeDecimals(totalRevenue)} د.ك</td>
+          </tr>
+        `;
 
       const contentHtml = `
         <div class="print-report">
@@ -3028,14 +3415,40 @@ function renderAccountingContent(section) {
           </div>
 
           <div class="meta-grid">
-            <div class="meta-card">
-              <div class="meta-label">اسم المنتج بالعربي</div>
-              <div class="meta-value">${salesReportSelectedProduct?.nameAr || 'غير محدد'}</div>
-            </div>
-            <div class="meta-card">
-              <div class="meta-label">اسم المنتج بالإنجليزي</div>
-              <div class="meta-value">${salesReportSelectedProduct?.nameEn || 'Not Specified'}</div>
-            </div>
+            ${isMultiMode ? `
+              <div class="meta-card">
+                <div class="meta-label">نوع التقرير</div>
+                <div class="meta-value">مجموعة منتجات</div>
+              </div>
+              <div class="meta-card">
+                <div class="meta-label">طريقة التحديد</div>
+                <div class="meta-value">${salesReportProductSource === 'manual' ? 'بحث واختيار منتجات' : 'حسب التصنيف'}</div>
+              </div>
+              ${isCategorySource ? `
+                <div class="meta-card">
+                  <div class="meta-label">التصنيف الرئيسي</div>
+                  <div class="meta-value">${mainCategoryLabel}</div>
+                </div>
+                <div class="meta-card">
+                  <div class="meta-label">التصنيف الفرعي</div>
+                  <div class="meta-value">${subCategoryLabel}</div>
+                </div>
+              ` : `
+                <div class="meta-card">
+                  <div class="meta-label">عدد المنتجات المختارة</div>
+                  <div class="meta-value">${salesReportMultiSelectedProductIds.length}</div>
+                </div>
+              `}
+            ` : `
+              <div class="meta-card">
+                <div class="meta-label">اسم المنتج بالعربي</div>
+                <div class="meta-value">${salesReportSelectedProduct?.nameAr || 'غير محدد'}</div>
+              </div>
+              <div class="meta-card">
+                <div class="meta-label">اسم المنتج بالإنجليزي</div>
+                <div class="meta-value">${salesReportSelectedProduct?.nameEn || 'Not Specified'}</div>
+              </div>
+            `}
             <div class="meta-card">
               <div class="meta-label">الفترة</div>
               <div class="meta-value">${getSalesReportPeriodText()}</div>
@@ -3044,26 +3457,32 @@ function renderAccountingContent(section) {
 
           <table class="report-table">
             <thead>
-              <tr>
-                <th>اسم الفرع</th>
-                <th>مرات البيع</th>
-                <th>إيرادات المنتج</th>
-              </tr>
+              ${isMultiMode ? `
+                <tr>
+                  <th>اسم المنتج بالعربي</th>
+                  <th>اسم المنتج بالإنجليزي</th>
+                  <th>اسم الفرع</th>
+                  <th>مرات البيع</th>
+                  <th>إيرادات المنتج</th>
+                </tr>
+              ` : `
+                <tr>
+                  <th>اسم الفرع</th>
+                  <th>مرات البيع</th>
+                  <th>إيرادات المنتج</th>
+                </tr>
+              `}
             </thead>
             <tbody>
               ${tableRowsHtml}
             </tbody>
             <tfoot>
-              <tr>
-                <td>الإجمالي</td>
-                <td>${totalSalesCount}</td>
-                <td>${formatNumberWithThreeDecimals(totalRevenue)} د.ك</td>
-              </tr>
+              ${totalRowHtml}
             </tfoot>
           </table>
 
           <div class="summary-strip">
-            عدد الفروع الظاهرة: ${salesReportResults.length} | مرات البيع الإجمالية: ${totalSalesCount} | إجمالي الإيرادات: ${formatNumberWithThreeDecimals(totalRevenue)} د.ك
+            عدد الصفوف الظاهرة: ${salesReportResults.length} | مرات البيع الإجمالية: ${totalSalesCount} | إجمالي الإيرادات: ${formatNumberWithThreeDecimals(totalRevenue)} د.ك
           </div>
         </div>
       `;
@@ -3080,6 +3499,8 @@ function renderAccountingContent(section) {
       const printedAt = new Date().toLocaleString('ar-SA');
       const totalQuantity = salesReportBranchRows.reduce((sum, row) => sum + (parseFloat(row.quantity) || 0), 0);
       const totalProductValue = salesReportBranchRows.reduce((sum, row) => sum + (parseFloat(row.invoiceProductTotal) || 0), 0);
+      const detailProductAr = salesReportCurrentDetailProduct?.nameAr || salesReportSelectedProduct?.nameAr || 'غير محدد';
+      const detailProductEn = salesReportCurrentDetailProduct?.nameEn || salesReportSelectedProduct?.nameEn || 'Not Specified';
 
       const tableRowsHtml = salesReportBranchRows.map(row => `
         <tr>
@@ -3108,11 +3529,11 @@ function renderAccountingContent(section) {
             </div>
             <div class="meta-card">
               <div class="meta-label">اسم المنتج بالعربي</div>
-              <div class="meta-value">${salesReportSelectedProduct?.nameAr || 'غير محدد'}</div>
+              <div class="meta-value">${detailProductAr}</div>
             </div>
             <div class="meta-card">
               <div class="meta-label">اسم المنتج بالإنجليزي</div>
-              <div class="meta-value">${salesReportSelectedProduct?.nameEn || 'Not Specified'}</div>
+              <div class="meta-value">${detailProductEn}</div>
             </div>
           </div>
 
