@@ -220,6 +220,14 @@
       orderType: null // 'delivery' or 'pickup'
     };
     let selectedProductsForCategory = [];
+    let salesReportSearchTerm = '';
+    let salesReportSelectedProductId = '';
+    let salesReportFromDate = '';
+    let salesReportToDate = '';
+    let salesReportSelectedProduct = null;
+    let salesReportResults = [];
+    let salesReportCurrentBranch = '';
+    let salesReportBranchRows = [];
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -252,6 +260,208 @@
       setTimeout(() => {
         toast.remove();
       }, 3000);
+    }
+
+    function normalizeText(value) {
+      return (value || '').toString().trim().toLowerCase();
+    }
+
+    function formatNumberWithThreeDecimals(value) {
+      return (parseFloat(value) || 0).toFixed(3);
+    }
+
+    function formatReportQuantity(value) {
+      const num = parseFloat(value);
+      if (isNaN(num)) return '0';
+      return Number.isInteger(num) ? num.toString() : num.toFixed(3);
+    }
+
+    function getSalesReportPeriodText() {
+      if (salesReportFromDate && salesReportToDate) {
+        return `من ${salesReportFromDate} إلى ${salesReportToDate}`;
+      }
+      if (salesReportFromDate) {
+        return `من ${salesReportFromDate}`;
+      }
+      if (salesReportToDate) {
+        return `حتى ${salesReportToDate}`;
+      }
+      return 'كل الفترات';
+    }
+
+    function buildExcelHtml(headers, rows, totalRow = '') {
+      return `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8">
+          <style>
+            table { border-collapse: collapse; width: 100%; direction: rtl; }
+            th { background-color: #2563eb; color: white; font-weight: bold; padding: 10px; border: 1px solid #ddd; text-align: center; }
+            td { padding: 8px; border: 1px solid #ddd; text-align: center; }
+            .total-row { background-color: #fef3c7; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f9fafb; }
+          </style>
+        </head>
+        <body>
+          <table dir="rtl">
+            <thead>
+              <tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${rows}
+              ${totalRow}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+    }
+
+    function downloadExcelHtml(html, fileName) {
+      const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel' });
+      const link = document.createElement('a');
+      const objectUrl = URL.createObjectURL(blob);
+      link.href = objectUrl;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    function openA4PrintWindow(title, contentHtml) {
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        showToast('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', true);
+        return;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 10mm;
+            }
+            body {
+              font-family: 'Cairo', Arial, sans-serif;
+              direction: rtl;
+              margin: 0;
+              color: #0f172a;
+              background: #ffffff;
+            }
+            .print-report {
+              border: 1px solid #dbe3ef;
+              border-radius: 12px;
+              padding: 16px;
+            }
+            .report-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              gap: 12px;
+              margin-bottom: 14px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #e5e7eb;
+            }
+            .report-title {
+              margin: 0;
+              font-size: 24px;
+              color: #1d4ed8;
+              font-weight: 700;
+            }
+            .print-date {
+              margin-top: 4px;
+              color: #6b7280;
+              font-size: 12px;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 8px;
+              margin-bottom: 12px;
+            }
+            .meta-card {
+              border: 1px solid #e5e7eb;
+              background: #f8fafc;
+              border-radius: 8px;
+              padding: 8px 10px;
+            }
+            .meta-label {
+              color: #6b7280;
+              font-size: 11px;
+              margin-bottom: 4px;
+            }
+            .meta-value {
+              color: #111827;
+              font-size: 13px;
+              font-weight: 700;
+              line-height: 1.4;
+            }
+            .report-table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: fixed;
+            }
+            .report-table th,
+            .report-table td {
+              border: 1px solid #d1d5db;
+              padding: 7px 8px;
+              text-align: right;
+              font-size: 12px;
+              word-break: break-word;
+              vertical-align: top;
+            }
+            .report-table th {
+              background: #1f2937;
+              color: #ffffff;
+              font-weight: 700;
+            }
+            .report-table tbody tr:nth-child(even) {
+              background: #f8fafc;
+            }
+            .report-table tfoot td {
+              background: #e0e7ff;
+              font-weight: 700;
+            }
+            .summary-strip {
+              margin-top: 12px;
+              border: 1px solid #bfdbfe;
+              border-radius: 8px;
+              background: #eff6ff;
+              padding: 10px;
+              font-size: 13px;
+              font-weight: bold;
+            }
+            @media print {
+              .print-report {
+                break-inside: auto;
+              }
+              .report-table thead {
+                display: table-header-group;
+              }
+              .report-table tr,
+              .report-table td,
+              .report-table th {
+                page-break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          ${contentHtml}
+          <script>
+            window.onload = function() {
+              window.print();
+              window.onafterprint = function() { window.close(); };
+            };
+          <\/script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
     }
     
     function convertToEnglishNumbers(str) {
@@ -1723,6 +1933,9 @@ function printThermalInvoice(button) {
               <div class="sidebar-item ${section === 'orders' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('orders')">
                 📦 الطلبات
               </div>
+              <div class="sidebar-item ${section === 'salesReport' || section === 'salesReportBranchDetails' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('salesReport')">
+                📈 تقرير المبيعات
+              </div>
               <div class="sidebar-item ${section === 'customers' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('customers')">
                 👥 العملاء
               </div>
@@ -1768,6 +1981,9 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'orders' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('orders')">
             📦 الطلبات
           </div>
+          <div class="sidebar-item ${section === 'salesReport' || section === 'salesReportBranchDetails' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('salesReport')">
+            📈 تقرير المبيعات
+          </div>
           <div class="sidebar-item ${section === 'customers' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('customers')">
             👥 العملاء
           </div>
@@ -1798,6 +2014,10 @@ function renderAccountingContent(section) {
   switch(section) {
     case 'orders': 
       return renderOrdersSection();
+    case 'salesReport':
+      return renderSalesReportSection();
+    case 'salesReportBranchDetails':
+      return renderSalesReportBranchDetailsSection();
     case 'customers': 
       return renderCustomersSection();
     case 'products': 
@@ -2350,6 +2570,586 @@ function renderAccountingContent(section) {
         renderAccounting('orders');
         showToast('تم حذف الطلب بنجاح');
       }
+    }
+
+    // Sales Report Section
+    function renderSalesReportSection() {
+      const searchTerm = normalizeText(salesReportSearchTerm);
+      const filteredProducts = allProducts
+        .filter(product => {
+          if (!searchTerm) return true;
+          const nameAr = normalizeText(product.nameAr);
+          const nameEn = normalizeText(product.nameEn);
+          return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
+        })
+        .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'));
+      const productSuggestions = searchTerm ? filteredProducts.slice(0, 25) : [];
+      const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId) || null;
+
+      const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
+      const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
+
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <div>
+              <h2 class="text-3xl font-bold text-blue-600">تقرير المبيعات</h2>
+              <p class="text-gray-600 mt-1">عرض مبيعات منتج محدد حسب الفروع</p>
+            </div>
+            ${salesReportResults.length > 0 ? `
+              <div class="flex gap-3">
+                <button onclick="printSalesReportA4()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة A4</button>
+                <button onclick="exportSalesReportExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div class="md:col-span-2">
+                <label class="block mb-2 font-bold text-gray-700">بحث المنتج واختياره</label>
+                <input
+                  type="text"
+                  id="salesReportProductSearch"
+                  value="${salesReportSearchTerm}"
+                  oninput="updateSalesReportProductSearch(this.value)"
+                  placeholder="اكتب اسم المنتج العربي أو الإنجليزي ثم اختر من النتائج"
+                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                >
+                <div id="salesReportProductSuggestions" class="mt-2 border border-gray-200 rounded-lg max-h-44 overflow-y-auto bg-white">
+                  ${searchTerm ? `
+                    ${productSuggestions.length > 0 ? productSuggestions.map(product => `
+                      <button
+                        type="button"
+                        onclick="selectSalesReportProduct('${product.id}')"
+                        class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportSelectedProductId === product.id ? 'bg-blue-100 font-bold text-blue-700' : ''}"
+                      >
+                        ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
+                      </button>
+                    `).join('') : `
+                      <div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>
+                    `}
+                  ` : `
+                    <div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>
+                  `}
+                </div>
+                <div id="salesReportSelectedProductLabel" class="mt-2 text-sm ${selectedProduct ? 'text-green-700 font-bold' : 'text-amber-700'}">
+                  ${selectedProduct ? `المنتج المختار: ${selectedProduct.nameAr || 'بدون اسم'} / ${selectedProduct.nameEn || 'No Name'}` : 'لم يتم اختيار منتج بعد'}
+                </div>
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
+                <input
+                  type="date"
+                  id="salesReportFromDate"
+                  value="${salesReportFromDate}"
+                  onchange="salesReportFromDate = this.value"
+                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                >
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
+                <input
+                  type="date"
+                  id="salesReportToDate"
+                  value="${salesReportToDate}"
+                  onchange="salesReportToDate = this.value"
+                  class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                >
+              </div>
+            </div>
+            <button onclick="runSalesReport()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">إظهار</button>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            ${salesReportResults.length > 0 ? `
+              <div class="mb-4 text-gray-700 font-bold">
+                مرات البيع الإجمالية: ${totalSalesCount} | إجمالي الإيرادات: ${formatNumberWithThreeDecimals(totalRevenue)} د.ك
+              </div>
+              <div class="overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>اسم الفرع</th>
+                      <th>مرات البيع</th>
+                      <th>إيرادات المنتج</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${salesReportResults.map((row, index) => `
+                      <tr>
+                        <td>
+                          <button onclick="openSalesReportBranchDetails(${index})" class="text-blue-600 underline font-bold hover:text-blue-800 transition">
+                            ${row.branch}
+                          </button>
+                        </td>
+                        <td>${row.salesCount}</td>
+                        <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : `
+              <div class="text-center py-10 text-gray-500">
+                لا توجد نتائج حتى الآن. اختر المنتج وحدد الفترة ثم اضغط "إظهار".
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function updateSalesReportProductSearch(value) {
+      salesReportSearchTerm = value;
+      salesReportSelectedProductId = '';
+      salesReportSelectedProduct = null;
+      renderSalesReportProductPicker();
+    }
+
+    function selectSalesReportProduct(productId) {
+      const product = allProducts.find(p => p.id === productId);
+      if (!product) {
+        showToast('تعذر اختيار المنتج', true);
+        return;
+      }
+
+      salesReportSelectedProductId = productId;
+      salesReportSelectedProduct = product;
+      salesReportSearchTerm = product.nameAr || product.nameEn || '';
+      const searchInput = document.getElementById('salesReportProductSearch');
+      if (searchInput) {
+        searchInput.value = salesReportSearchTerm;
+      }
+      renderSalesReportProductPicker();
+    }
+
+    function updateSalesReportSelectedProduct(productId) {
+      selectSalesReportProduct(productId);
+    }
+
+    function renderSalesReportProductPicker() {
+      const suggestionsContainer = document.getElementById('salesReportProductSuggestions');
+      const selectedLabel = document.getElementById('salesReportSelectedProductLabel');
+      if (!suggestionsContainer || !selectedLabel) return;
+
+      const searchTerm = normalizeText(salesReportSearchTerm);
+      const filteredProducts = allProducts
+        .filter(product => {
+          if (!searchTerm) return true;
+          const nameAr = normalizeText(product.nameAr);
+          const nameEn = normalizeText(product.nameEn);
+          return nameAr.includes(searchTerm) || nameEn.includes(searchTerm);
+        })
+        .sort((a, b) => (a.nameAr || '').localeCompare((b.nameAr || ''), 'ar'));
+      const productSuggestions = searchTerm ? filteredProducts.slice(0, 25) : [];
+      const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId) || null;
+
+      if (searchTerm) {
+        if (productSuggestions.length > 0) {
+          suggestionsContainer.innerHTML = productSuggestions.map(product => `
+            <button
+              type="button"
+              onclick="selectSalesReportProduct('${product.id}')"
+              class="w-full text-right p-2 border-b border-gray-100 hover:bg-blue-50 transition ${salesReportSelectedProductId === product.id ? 'bg-blue-100 font-bold text-blue-700' : ''}"
+            >
+              ${product.nameAr || 'بدون اسم'} / ${product.nameEn || 'No Name'}
+            </button>
+          `).join('');
+        } else {
+          suggestionsContainer.innerHTML = '<div class="p-3 text-sm text-gray-500">لا توجد نتائج مطابقة.</div>';
+        }
+      } else {
+        suggestionsContainer.innerHTML = '<div class="p-3 text-sm text-gray-500">ابدأ بالكتابة لعرض نتائج المنتجات.</div>';
+      }
+
+      selectedLabel.className = `mt-2 text-sm ${selectedProduct ? 'text-green-700 font-bold' : 'text-amber-700'}`;
+      selectedLabel.textContent = selectedProduct
+        ? `المنتج المختار: ${selectedProduct.nameAr || 'بدون اسم'} / ${selectedProduct.nameEn || 'No Name'}`
+        : 'لم يتم اختيار منتج بعد';
+    }
+
+    function isMatchingSalesReportItem(item, product) {
+      if (!item || !product) return false;
+
+      const itemProductId = (item.productId || '').toString();
+      const productId = (product.id || '').toString();
+      if (itemProductId && productId && itemProductId === productId) {
+        return true;
+      }
+
+      const itemNameAr = normalizeText(item.productName);
+      const itemNameEn = normalizeText(item.productNameEn);
+      const productNameAr = normalizeText(product.nameAr);
+      const productNameEn = normalizeText(product.nameEn);
+
+      return (
+        (productNameAr && itemNameAr === productNameAr) ||
+        (productNameEn && itemNameEn === productNameEn)
+      );
+    }
+
+    function runSalesReport() {
+      if (!salesReportSelectedProductId) {
+        showToast('يرجى اختيار منتج أولاً', true);
+        return;
+      }
+
+      const selectedProduct = allProducts.find(product => product.id === salesReportSelectedProductId);
+      if (!selectedProduct) {
+        showToast('المنتج المحدد غير موجود', true);
+        return;
+      }
+
+      const fromTimestamp = salesReportFromDate ? new Date(`${salesReportFromDate}T00:00:00`).getTime() : null;
+      const toTimestamp = salesReportToDate ? new Date(`${salesReportToDate}T23:59:59`).getTime() : null;
+
+      if (fromTimestamp && toTimestamp && fromTimestamp > toTimestamp) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', true);
+        return;
+      }
+
+      const reportMap = {};
+
+      allOrders.forEach(order => {
+        const orderTimestamp = parseInt(order.timestamp, 10) || 0;
+        if (fromTimestamp && orderTimestamp < fromTimestamp) return;
+        if (toTimestamp && orderTimestamp > toTimestamp) return;
+
+        const items = Array.isArray(order.items) ? order.items : [];
+        const matchingItems = items.filter(item => isMatchingSalesReportItem(item, selectedProduct));
+        if (matchingItems.length === 0) return;
+
+        const branch = order.branch || 'غير محدد';
+        if (!reportMap[branch]) {
+          reportMap[branch] = {
+            branch,
+            productNameAr: selectedProduct.nameAr || 'بدون اسم',
+            productNameEn: selectedProduct.nameEn || 'No Name',
+            salesCount: 0,
+            revenue: 0,
+            detailsRows: []
+          };
+        }
+
+        const totalQuantityInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+        const totalRevenueInInvoice = matchingItems.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+        const firstItem = matchingItems[0] || {};
+
+        reportMap[branch].salesCount += 1;
+        reportMap[branch].revenue += totalRevenueInInvoice;
+        reportMap[branch].detailsRows.push({
+          invoiceNumber: order.invoiceNumber || 'N/A',
+          productNameAr: firstItem.productName || selectedProduct.nameAr || 'N/A',
+          productNameEn: firstItem.productNameEn || selectedProduct.nameEn || 'N/A',
+          customerName: order.customerName || 'N/A',
+          cashierName: order.cashier || 'N/A',
+          quantity: totalQuantityInInvoice,
+          invoiceProductTotal: totalRevenueInInvoice,
+          timestamp: orderTimestamp
+        });
+      });
+
+      salesReportSelectedProduct = selectedProduct;
+      salesReportResults = Object.values(reportMap).sort((a, b) => {
+        if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+        return b.salesCount - a.salesCount;
+      });
+      salesReportCurrentBranch = '';
+      salesReportBranchRows = [];
+
+      renderAccounting('salesReport');
+
+      if (salesReportResults.length === 0) {
+        showToast('لا توجد نتائج مطابقة للفلاتر المحددة');
+      }
+    }
+
+    function openSalesReportBranchDetails(index) {
+      const selectedRow = salesReportResults[index];
+      if (!selectedRow) {
+        showToast('تعذر فتح تفاصيل الفرع', true);
+        return;
+      }
+
+      salesReportCurrentBranch = selectedRow.branch;
+      salesReportBranchRows = selectedRow.detailsRows
+        .slice()
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      renderAccounting('salesReportBranchDetails');
+    }
+
+    function renderSalesReportBranchDetailsSection() {
+      if (!salesReportCurrentBranch) {
+        return `
+          <div class="bg-white p-6 rounded-xl shadow-lg text-center">
+            <div class="text-gray-600 mb-4">لا يوجد فرع محدد لعرض التفاصيل.</div>
+            <button onclick="renderAccounting('salesReport')" class="bg-gray-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-gray-800 transition">رجوع</button>
+          </div>
+        `;
+      }
+
+      const selectedProductAr = salesReportSelectedProduct?.nameAr || 'غير محدد';
+      const selectedProductEn = salesReportSelectedProduct?.nameEn || 'Not Specified';
+
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <div>
+              <h2 class="text-3xl font-bold text-blue-600">تفاصيل مبيعات الفرع: ${salesReportCurrentBranch}</h2>
+              <p class="text-gray-600 mt-1">
+                المنتج: ${selectedProductAr} / ${selectedProductEn} | الفترة: ${getSalesReportPeriodText()}
+              </p>
+            </div>
+            <div class="flex gap-3">
+              <button onclick="renderAccounting('salesReport')" class="bg-gray-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-700 transition">⬅ رجوع</button>
+              <button onclick="printSalesReportDetailsA4()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة A4</button>
+              <button onclick="exportSalesReportDetailsExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            ${salesReportBranchRows.length > 0 ? `
+              <div class="overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>رقم الفاتورة</th>
+                      <th>اسم العميل</th>
+                      <th>اسم الكاشير</th>
+                      <th>كمية المنتج في الفاتورة</th>
+                      <th>إجمالي قيمة المنتج في الفاتورة</th>
+                      <th>تاريخ ووقت الطلب</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${salesReportBranchRows.map(row => `
+                      <tr>
+                        <td>${row.invoiceNumber}</td>
+                        <td>${row.customerName}</td>
+                        <td>${row.cashierName}</td>
+                        <td>${formatReportQuantity(row.quantity)}</td>
+                        <td>${formatNumberWithThreeDecimals(row.invoiceProductTotal)} د.ك</td>
+                        <td>${formatDate(row.timestamp)} ${formatTime(row.timestamp)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : `
+              <div class="text-center py-10 text-gray-500">لا توجد تفاصيل متاحة لهذا الفرع.</div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function exportSalesReportExcel() {
+      if (salesReportResults.length === 0) {
+        showToast('لا توجد نتائج لتصديرها', true);
+        return;
+      }
+
+      const headers = ['اسم الفرع', 'مرات البيع', 'إيرادات المنتج (د.ك)'];
+      const rowsHtml = salesReportResults.map(row => `
+        <tr>
+          <td>${row.branch}</td>
+          <td>${row.salesCount}</td>
+          <td>${formatNumberWithThreeDecimals(row.revenue)}</td>
+        </tr>
+      `).join('');
+
+      const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
+      const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
+      const totalRow = `
+        <tr class="total-row">
+          <td>الإجمالي</td>
+          <td>${totalSalesCount}</td>
+          <td>${formatNumberWithThreeDecimals(totalRevenue)}</td>
+        </tr>
+      `;
+
+      const excelHtml = buildExcelHtml(headers, rowsHtml, totalRow);
+      const today = new Date().toLocaleDateString('ar-SA').replace(/\//g, '-');
+      downloadExcelHtml(excelHtml, `تقرير_المبيعات_${today}.xls`);
+      showToast('تم تحميل تقرير المبيعات (Excel)');
+    }
+
+    function exportSalesReportDetailsExcel() {
+      if (salesReportBranchRows.length === 0) {
+        showToast('لا توجد بيانات تفاصيل للتصدير', true);
+        return;
+      }
+
+      const headers = ['رقم الفاتورة', 'اسم العميل', 'اسم الكاشير', 'كمية المنتج في الفاتورة', 'إجمالي قيمة المنتج في الفاتورة (د.ك)', 'تاريخ ووقت الطلب'];
+      const rowsHtml = salesReportBranchRows.map(row => `
+        <tr>
+          <td>${row.invoiceNumber}</td>
+          <td>${row.customerName}</td>
+          <td>${row.cashierName}</td>
+          <td>${formatReportQuantity(row.quantity)}</td>
+          <td>${formatNumberWithThreeDecimals(row.invoiceProductTotal)}</td>
+          <td>${formatDate(row.timestamp)} ${formatTime(row.timestamp)}</td>
+        </tr>
+      `).join('');
+
+      const excelHtml = buildExcelHtml(headers, rowsHtml);
+      const today = new Date().toLocaleDateString('ar-SA').replace(/\//g, '-');
+      downloadExcelHtml(excelHtml, `تفاصيل_تقرير_المبيعات_${salesReportCurrentBranch}_${today}.xls`);
+      showToast('تم تحميل تفاصيل التقرير (Excel)');
+    }
+
+    function printSalesReportA4() {
+      if (salesReportResults.length === 0) {
+        showToast('لا توجد نتائج للطباعة', true);
+        return;
+      }
+
+      const totalSalesCount = salesReportResults.reduce((sum, row) => sum + (row.salesCount || 0), 0);
+      const totalRevenue = salesReportResults.reduce((sum, row) => sum + (row.revenue || 0), 0);
+      const printedAt = new Date().toLocaleString('ar-SA');
+
+      const tableRowsHtml = salesReportResults.map(row => `
+        <tr>
+          <td>${row.branch}</td>
+          <td>${row.salesCount}</td>
+          <td>${formatNumberWithThreeDecimals(row.revenue)} د.ك</td>
+        </tr>
+      `).join('');
+
+      const contentHtml = `
+        <div class="print-report">
+          <div class="report-header">
+            <div>
+              <h1 class="report-title">تقرير المبيعات</h1>
+              <div class="print-date">تاريخ الطباعة: ${printedAt}</div>
+            </div>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-card">
+              <div class="meta-label">اسم المنتج بالعربي</div>
+              <div class="meta-value">${salesReportSelectedProduct?.nameAr || 'غير محدد'}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">اسم المنتج بالإنجليزي</div>
+              <div class="meta-value">${salesReportSelectedProduct?.nameEn || 'Not Specified'}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">الفترة</div>
+              <div class="meta-value">${getSalesReportPeriodText()}</div>
+            </div>
+          </div>
+
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>اسم الفرع</th>
+                <th>مرات البيع</th>
+                <th>إيرادات المنتج</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>الإجمالي</td>
+                <td>${totalSalesCount}</td>
+                <td>${formatNumberWithThreeDecimals(totalRevenue)} د.ك</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div class="summary-strip">
+            عدد الفروع الظاهرة: ${salesReportResults.length} | مرات البيع الإجمالية: ${totalSalesCount} | إجمالي الإيرادات: ${formatNumberWithThreeDecimals(totalRevenue)} د.ك
+          </div>
+        </div>
+      `;
+
+      openA4PrintWindow('تقرير المبيعات', contentHtml);
+    }
+
+    function printSalesReportDetailsA4() {
+      if (salesReportBranchRows.length === 0) {
+        showToast('لا توجد تفاصيل للطباعة', true);
+        return;
+      }
+
+      const printedAt = new Date().toLocaleString('ar-SA');
+      const totalQuantity = salesReportBranchRows.reduce((sum, row) => sum + (parseFloat(row.quantity) || 0), 0);
+      const totalProductValue = salesReportBranchRows.reduce((sum, row) => sum + (parseFloat(row.invoiceProductTotal) || 0), 0);
+
+      const tableRowsHtml = salesReportBranchRows.map(row => `
+        <tr>
+          <td>${row.invoiceNumber}</td>
+          <td>${row.customerName}</td>
+          <td>${row.cashierName}</td>
+          <td>${formatReportQuantity(row.quantity)}</td>
+          <td>${formatNumberWithThreeDecimals(row.invoiceProductTotal)} د.ك</td>
+          <td>${formatDate(row.timestamp)} ${formatTime(row.timestamp)}</td>
+        </tr>
+      `).join('');
+
+      const contentHtml = `
+        <div class="print-report">
+          <div class="report-header">
+            <div>
+              <h1 class="report-title">تفاصيل تقرير المبيعات</h1>
+              <div class="print-date">تاريخ الطباعة: ${printedAt}</div>
+            </div>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-card">
+              <div class="meta-label">الفرع</div>
+              <div class="meta-value">${salesReportCurrentBranch}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">اسم المنتج بالعربي</div>
+              <div class="meta-value">${salesReportSelectedProduct?.nameAr || 'غير محدد'}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">اسم المنتج بالإنجليزي</div>
+              <div class="meta-value">${salesReportSelectedProduct?.nameEn || 'Not Specified'}</div>
+            </div>
+          </div>
+
+          <div class="meta-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+            <div class="meta-card">
+              <div class="meta-label">الفترة</div>
+              <div class="meta-value">${getSalesReportPeriodText()}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">عدد الفواتير في التقرير</div>
+              <div class="meta-value">${salesReportBranchRows.length}</div>
+            </div>
+          </div>
+
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>رقم الفاتورة</th>
+                <th>اسم العميل</th>
+                <th>اسم الكاشير</th>
+                <th>كمية المنتج في الفاتورة</th>
+                <th>إجمالي قيمة المنتج في الفاتورة</th>
+                <th>تاريخ ووقت الطلب</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+          </table>
+
+          <div class="summary-strip">
+            إجمالي كمية المنتج في التفاصيل: ${formatReportQuantity(totalQuantity)} | إجمالي قيمة المنتج في التفاصيل: ${formatNumberWithThreeDecimals(totalProductValue)} د.ك
+          </div>
+        </div>
+      `;
+
+      openA4PrintWindow(`تفاصيل تقرير المبيعات - ${salesReportCurrentBranch}`, contentHtml);
     }
 
     // Customers Section
