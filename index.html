@@ -7,7 +7,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&amp;display=swap" rel="stylesheet">
   <style>
@@ -235,6 +235,24 @@
     let salesReportCurrentBranch = '';
     let salesReportBranchRows = [];
     let salesReportCurrentDetailProduct = null;
+    let allInventoryCategories = [];
+    let allInventoryUnits = [];
+    let allIssueCashiers = [];
+    let allInventoryIssues = [];
+    let selectedInventoryCategoryId = '';
+    let inventoryProductSearchTerm = '';
+    let inventoryCategorySearchTerm = '';
+    let inventoryCategoryProductsSearchTerm = '';
+    let issueProductSearchTerm = '';
+    let selectedProductsForInventory = [];
+    let selectedInventoryProductsForCategory = [];
+    let currentIssueVoucherDraft = {
+      warehouseKeeper: '',
+      cashierId: '',
+      invoiceNumber: '',
+      items: []
+    };
+    let isIssueVoucherModalOpen = false;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -472,6 +490,7 @@
     }
     
     function convertToEnglishNumbers(str) {
+      str = (str === undefined || str === null) ? '' : String(str);
       const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
       const englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
       
@@ -480,6 +499,54 @@
       }
       
       return str;
+    }
+
+    function normalizeDecimalInput(value) {
+      let normalized = convertToEnglishNumbers(value)
+        .replace(/٫/g, '.')
+        .replace(/،/g, '.')
+        .replace(/,/g, '.')
+        .replace(/[^0-9.]/g, '');
+
+      const parts = normalized.split('.');
+      if (parts.length > 2) {
+        normalized = `${parts[0]}.${parts.slice(1).join('')}`;
+      }
+
+      return normalized;
+    }
+
+    function parseInventoryQuantity(product) {
+      if (!product) return 0;
+      const raw = product.inventoryQuantity !== undefined && product.inventoryQuantity !== null
+        ? product.inventoryQuantity
+        : product.stock;
+      const value = parseFloat(raw);
+      return isNaN(value) ? 0 : value;
+    }
+
+    function getInventoryQuantityText(product) {
+      if (!product) return '';
+      const raw = product.inventoryQuantity !== undefined && product.inventoryQuantity !== null
+        ? product.inventoryQuantity
+        : product.stock;
+      if (raw === '' || raw === null || raw === undefined) return '';
+      const value = parseFloat(raw);
+      if (isNaN(value)) return '';
+      return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    function getInventoryUnitName(unitId) {
+      if (!unitId) return '';
+      const unit = allInventoryUnits.find(item => item.id === unitId);
+      if (!unit) return '';
+      const ar = unit.nameAr || '';
+      const en = unit.nameEn || '';
+      return en ? `${ar} / ${en}` : ar;
+    }
+
+    function getTrackedInventoryProducts() {
+      return allProducts.filter(product => product.inventoryEnabled);
     }
 
     // Generate invoice number based on branch
@@ -548,6 +615,39 @@ function setupRealtimeListeners() {
     allCategories = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
     refreshUI();
   });
+
+  // 6. مراقبة تصنيفات المخزون
+  db.ref('inventoryCategories').on('value', (snapshot) => {
+    allInventoryCategories = snapshot.val()
+      ? Object.entries(snapshot.val()).map(([id, data]) => ({
+          id,
+          ...data,
+          productIds: Array.isArray(data.productIds)
+            ? data.productIds
+            : (data.productIds ? Object.values(data.productIds) : [])
+        }))
+      : [];
+    refreshUI();
+  });
+
+  // 7. مراقبة وحدات المخزون
+  db.ref('inventoryUnits').on('value', (snapshot) => {
+    allInventoryUnits = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 8. مراقبة كاشيرات الصرف
+  db.ref('inventoryIssueCashiers').on('value', (snapshot) => {
+    allIssueCashiers = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 9. مراقبة سندات الصرف
+  db.ref('inventoryIssues').on('value', (snapshot) => {
+    allInventoryIssues = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    allInventoryIssues.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    refreshUI();
+  });
 }
 
 // 2. دالة تحديث واجهة المستخدم بدون ريفريش
@@ -611,6 +711,57 @@ function refreshUI() {
         showToast('خطأ في حذف القسم', true);
         return false;
       }
+    }
+
+    async function saveInventoryCategory(category) {
+      try {
+        const id = category.id || generateId();
+        await db.ref(`inventoryCategories/${id}`).set({
+          ...category,
+          id,
+          productIds: Array.isArray(category.productIds) ? category.productIds : []
+        });
+        await loadData();
+        return true;
+      } catch (error) {
+        console.error('Error saving inventory category:', error);
+        showToast('خطأ في حفظ تصنيف المخزون', true);
+        return false;
+      }
+    }
+
+    async function saveInventoryUnit(unit) {
+      try {
+        const id = unit.id || generateId();
+        await db.ref(`inventoryUnits/${id}`).set({ ...unit, id });
+        await loadData();
+        return { success: true, id };
+      } catch (error) {
+        console.error('Error saving inventory unit:', error);
+        showToast('خطأ في حفظ الوحدة', true);
+        return { success: false, id: null };
+      }
+    }
+
+    async function saveIssueCashier(cashier) {
+      try {
+        const id = cashier.id || generateId();
+        await db.ref(`inventoryIssueCashiers/${id}`).set({ ...cashier, id });
+        await loadData();
+        return { success: true, id };
+      } catch (error) {
+        console.error('Error saving issue cashier:', error);
+        showToast('خطأ في حفظ اسم الكاشير', true);
+        return { success: false, id: null };
+      }
+    }
+
+    async function generateInventoryIssueNumber() {
+      const counterRef = db.ref('inventoryIssueCounter');
+      const snapshot = await counterRef.once('value');
+      const currentCounter = (snapshot.val() || 0) + 1;
+      await counterRef.set(currentCounter);
+      return `SRF-${String(currentCounter).padStart(6, '0')}`;
     }
 
     async function saveCustomer(customer) {
@@ -1977,6 +2128,10 @@ function printThermalInvoice(button) {
 function renderAccounting(section) {
   // حفظ القسم الحالي في المتغير العام لكي تعرف دالة التحديث اللحظي ماذا تُحدث
   currentAccountingSection = section; 
+  if (section !== 'issue') {
+    isIssueVoucherModalOpen = false;
+    issueProductSearchTerm = '';
+  }
   
   const app = document.getElementById('app');
   
@@ -1999,6 +2154,12 @@ function renderAccounting(section) {
           </div>
           <div class="sidebar-item ${section === 'categories' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('categories')">
             📁 الأقسام
+          </div>
+          <div class="sidebar-item ${['inventory', 'inventoryProducts', 'inventoryCategories', 'inventoryCategoryDetails'].includes(section) ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('inventory')">
+            📦 متابعة المخزون
+          </div>
+          <div class="sidebar-item ${section === 'issue' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('issue')">
+            🧾 صرف
           </div>
           <div class="sidebar-item ${section === 'devices' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('devices')">
             🖥️ الأجهزة والكاشير
@@ -2031,6 +2192,16 @@ function renderAccountingContent(section) {
       return renderProductsSection();
     case 'categories': 
       return renderCategoriesSection();
+    case 'inventory':
+      return renderInventorySection();
+    case 'inventoryProducts':
+      return renderInventoryProductsSection();
+    case 'inventoryCategories':
+      return renderInventoryCategoriesSection();
+    case 'inventoryCategoryDetails':
+      return renderInventoryCategoryDetailsSection();
+    case 'issue':
+      return renderIssueSection();
     case 'devices': 
       return renderDevicesSection();
     default: 
@@ -4117,17 +4288,6 @@ function renderAccountingContent(section) {
               <label class="block mb-2 font-bold text-gray-700">السعر</label>
               <input type="number" step="0.001" id="newProductPrice" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
             </div>
-            <div>
-              <label class="block mb-2 font-bold text-gray-700">الوحدة</label>
-              <select id="newProductUnit" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                ${units.map(unit => `<option value="${unit}">${unit}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <div><label class="block mb-2 font-bold text-gray-700">المخزون</label> 
-              <input type="text" id="newProductStock" value="0" readonly class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none bg-white cursor-pointer" onclick="showNumericKeypad(this)">
-
-            </div>
           </div>
           <div class="flex gap-3 mt-6">
             <button onclick="addProduct()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">إضافة</button>
@@ -4142,8 +4302,6 @@ function renderAccountingContent(section) {
       const nameAr = document.getElementById('newProductNameAr').value.trim();
       const nameEn = document.getElementById('newProductNameEn').value.trim();
       const price = parseFloat(document.getElementById('newProductPrice').value);
-      const unit = document.getElementById('newProductUnit').value;
-      const stock = parseFloat(document.getElementById('newProductStock').value) || 0;
       
       if (!nameAr || !nameEn || isNaN(price)) {
         showToast('الرجاء إدخال جميع البيانات المطلوبة', true);
@@ -4154,8 +4312,6 @@ function renderAccountingContent(section) {
         nameAr,
         nameEn,
         price,
-        unit,
-        stock,
         categoryId: null
       };
       
@@ -4188,16 +4344,6 @@ function renderAccountingContent(section) {
               <label class="block mb-2 font-bold text-gray-700">السعر</label>
               <input type="number" step="0.001" id="editProductPrice" value="${product.price}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
             </div>
-            <div>
-              <label class="block mb-2 font-bold text-gray-700">الوحدة</label>
-              <select id="editProductUnit" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                ${units.map(unit => `<option value="${unit}" ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="block mb-2 font-bold text-gray-700">المخزون</label>
-              <input type="number" id="editProductStock" value="${product.stock || 0}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-            </div>
           </div>
           <div class="flex gap-3 mt-6">
             <button onclick="saveEditedProduct('${productId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ</button>
@@ -4212,8 +4358,6 @@ function renderAccountingContent(section) {
       const nameAr = document.getElementById('editProductNameAr').value.trim();
       const nameEn = document.getElementById('editProductNameEn').value.trim();
       const price = parseFloat(document.getElementById('editProductPrice').value);
-      const unit = document.getElementById('editProductUnit').value;
-      const stock = parseFloat(document.getElementById('editProductStock').value) || 0;
       
       if (!nameAr || !nameEn || isNaN(price)) {
         showToast('الرجاء إدخال جميع البيانات المطلوبة', true);
@@ -4224,8 +4368,6 @@ function renderAccountingContent(section) {
       product.nameAr = nameAr;
       product.nameEn = nameEn;
       product.price = price;
-      product.unit = unit;
-      product.stock = stock;
       
       const success = await saveProduct(product);
       if (success) {
@@ -4598,6 +4740,1255 @@ function toggleProductSelection(productId, categoryId) {
     viewCategory(categoryId);
   }
 }
+
+    // Inventory Tracking Section
+    function renderInventorySection() {
+      return `
+        <div class="max-w-3xl mx-auto">
+          <h2 class="text-3xl font-bold text-blue-600 mb-6">متابعة المخزون</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <button onclick="renderAccounting('inventoryProducts')" class="bg-white border-2 border-blue-300 rounded-xl p-8 text-right shadow hover:shadow-lg transition hover:border-blue-500">
+              <div class="text-3xl mb-3">📦</div>
+              <div class="text-2xl font-bold text-blue-700">منتجات المخزون</div>
+            </button>
+            <button onclick="renderAccounting('inventoryCategories')" class="bg-white border-2 border-blue-300 rounded-xl p-8 text-right shadow hover:shadow-lg transition hover:border-blue-500">
+              <div class="text-3xl mb-3">📁</div>
+              <div class="text-2xl font-bold text-blue-700">تصنيفات المخزون</div>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function setInventoryProductSearchTerm(value) {
+      inventoryProductSearchTerm = value;
+      renderAccounting('inventoryProducts');
+    }
+
+    function renderInventoryProductsSection() {
+      const trackedProducts = getTrackedInventoryProducts().filter(product => {
+        const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
+        return searchText.includes((inventoryProductSearchTerm || '').toLowerCase());
+      });
+
+      return `
+        <div>
+          <div class="flex flex-wrap gap-3 justify-between items-center mb-6">
+            <div class="flex gap-3">
+              <button onclick="renderAccounting('inventory')" class="bg-gray-200 text-gray-800 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+              <button onclick="showAddProductsToInventoryModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة منتجات</button>
+            </div>
+            <h2 class="text-3xl font-bold text-blue-600">منتجات المخزون</h2>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <input type="text" value="${inventoryProductSearchTerm || ''}" oninput="setInventoryProductSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>السعر</th>
+                    <th>الكمية</th>
+                    <th>الوحدة</th>
+                    <th>الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${trackedProducts.length > 0 ? trackedProducts.map(product => `
+                    <tr>
+                      <td>${product.nameAr || ''}</td>
+                      <td>${product.nameEn || ''}</td>
+                      <td>${(parseFloat(product.price) || 0).toFixed(3)} د.ك</td>
+                      <td>
+                        <input
+                          type="text"
+                          value="${getInventoryQuantityText(product)}"
+                          placeholder="أدخل الكمية"
+                          oninput="this.value = normalizeDecimalInput(this.value)"
+                          onblur="saveInventoryProductQuantity('${product.id}', this.value)"
+                          class="w-32 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none"
+                        >
+                      </td>
+                      <td>
+                        <select onchange="handleInventoryUnitChange('${product.id}', this.value)" class="p-2 border-2 border-gray-300 rounded-lg w-52 focus:border-blue-600 focus:outline-none">
+                          <option value="">-- اختر --</option>
+                          ${allInventoryUnits.map(unit => `
+                            <option value="${unit.id}" ${product.inventoryUnitId === unit.id ? 'selected' : ''}>${unit.nameAr || ''}${unit.nameEn ? ` / ${unit.nameEn}` : ''}</option>
+                          `).join('')}
+                          <option value="__add_new__">➕ إضافة وحدة جديدة</option>
+                          <option value="__edit_selected__">✏️ تعديل الوحدة المحددة</option>
+                          <option value="__delete_selected__">🗑️ حذف الوحدة المحددة</option>
+                        </select>
+                      </td>
+                      <td>
+                        <div class="flex gap-2">
+                          <button onclick="editProduct('${product.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                          <button onclick="confirmRemoveProductFromInventory('${product.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد منتجات في متابعة المخزون</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveInventoryProductQuantity(productId, value) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+      const normalized = normalizeDecimalInput(value);
+      const quantity = normalized === '' ? null : parseFloat(normalized);
+      product.inventoryQuantity = quantity;
+      product.stock = quantity;
+      await saveProduct(product);
+    }
+
+    async function handleInventoryUnitChange(productId, unitId) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+
+      if (unitId === '__add_new__') {
+        showAddInventoryUnitModal(productId);
+        return;
+      }
+      if (unitId === '__edit_selected__') {
+        if (!product.inventoryUnitId) {
+          showToast('اختر وحدة أولاً ثم أعد المحاولة', true);
+          renderAccounting('inventoryProducts');
+          return;
+        }
+        showEditInventoryUnitModal(product.inventoryUnitId);
+        return;
+      }
+      if (unitId === '__delete_selected__') {
+        if (!product.inventoryUnitId) {
+          showToast('اختر وحدة أولاً ثم أعد المحاولة', true);
+          renderAccounting('inventoryProducts');
+          return;
+        }
+        confirmDeleteInventoryUnit(product.inventoryUnitId);
+        return;
+      }
+
+      product.inventoryUnitId = unitId || null;
+      const selectedUnit = allInventoryUnits.find(unit => unit.id === unitId);
+      product.unit = selectedUnit ? (selectedUnit.nameAr || selectedUnit.nameEn || '') : '';
+      await saveProduct(product);
+    }
+
+    function showAddInventoryUnitModal(productId = '') {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-lg">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة وحدة جديدة</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم الوحدة بالعربي</label>
+              <input type="text" id="newInventoryUnitAr" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم الوحدة بالإنجليزي</label>
+              <input type="text" id="newInventoryUnitEn" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="addInventoryUnit('${productId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">إضافة</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting(currentAccountingSection);" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function addInventoryUnit(productId = '') {
+      const nameAr = document.getElementById('newInventoryUnitAr').value.trim();
+      const nameEn = document.getElementById('newInventoryUnitEn').value.trim();
+
+      if (!nameAr || !nameEn) {
+        showToast('الرجاء إدخال اسم الوحدة بالعربي والإنجليزي', true);
+        return;
+      }
+
+      const result = await saveInventoryUnit({ nameAr, nameEn });
+      if (!result.success) return;
+
+      if (productId) {
+        const product = allProducts.find(item => item.id === productId);
+        if (product) {
+          product.inventoryUnitId = result.id;
+          product.unit = nameAr;
+          await saveProduct(product);
+        }
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      showToast('تم إضافة الوحدة بنجاح');
+      renderAccounting(currentAccountingSection);
+    }
+
+    function showEditInventoryUnitModal(unitId) {
+      const unit = allInventoryUnits.find(item => item.id === unitId);
+      if (!unit) {
+        showToast('الوحدة غير موجودة', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-lg">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">تعديل الوحدة</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم الوحدة بالعربي</label>
+              <input type="text" id="editInventoryUnitAr" value="${unit.nameAr || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم الوحدة بالإنجليزي</label>
+              <input type="text" id="editInventoryUnitEn" value="${unit.nameEn || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="saveEditedInventoryUnit('${unitId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting(currentAccountingSection);" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function saveEditedInventoryUnit(unitId) {
+      const nameAr = document.getElementById('editInventoryUnitAr').value.trim();
+      const nameEn = document.getElementById('editInventoryUnitEn').value.trim();
+
+      if (!nameAr || !nameEn) {
+        showToast('الرجاء إدخال اسم الوحدة بالعربي والإنجليزي', true);
+        return;
+      }
+
+      try {
+        const updates = {
+          [`inventoryUnits/${unitId}/nameAr`]: nameAr,
+          [`inventoryUnits/${unitId}/nameEn`]: nameEn
+        };
+
+        allProducts
+          .filter(product => product.inventoryUnitId === unitId)
+          .forEach(product => {
+            updates[`products/${product.id}/unit`] = nameAr;
+          });
+
+        await db.ref().update(updates);
+        await loadData();
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم تعديل الوحدة بنجاح');
+        renderAccounting(currentAccountingSection);
+      } catch (error) {
+        console.error('Error editing inventory unit:', error);
+        showToast('خطأ في تعديل الوحدة', true);
+      }
+    }
+
+    function confirmDeleteInventoryUnit(unitId) {
+      const unit = allInventoryUnits.find(item => item.id === unitId);
+      if (!unit) {
+        showToast('الوحدة غير موجودة', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف الوحدة</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف الوحدة "${unit.nameAr || ''}"؟</p>
+          <div class="flex gap-3">
+            <button onclick="deleteInventoryUnitConfirmed('${unitId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting(currentAccountingSection);" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteInventoryUnitConfirmed(unitId) {
+      try {
+        const updates = {
+          [`inventoryUnits/${unitId}`]: null
+        };
+
+        allProducts
+          .filter(product => product.inventoryUnitId === unitId)
+          .forEach(product => {
+            updates[`products/${product.id}/inventoryUnitId`] = null;
+            updates[`products/${product.id}/unit`] = '';
+          });
+
+        await db.ref().update(updates);
+        await loadData();
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم حذف الوحدة');
+        renderAccounting(currentAccountingSection);
+      } catch (error) {
+        console.error('Error deleting inventory unit:', error);
+        showToast('خطأ في حذف الوحدة', true);
+      }
+    }
+
+    function confirmRemoveProductFromInventory(productId) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) {
+        showToast('المنتج غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف المنتج من المخزون</h2>
+          <p class="text-gray-600 mb-6">سيتم إزالة "${product.nameAr || ''}" من متابعة المخزون ومن جميع التصنيفات المرتبطة.</p>
+          <div class="flex gap-3">
+            <button onclick="removeProductFromInventoryConfirmed('${productId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function removeProductFromInventoryConfirmed(productId) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+
+      try {
+        const updates = {
+          [`products/${productId}/inventoryEnabled`]: false,
+          [`products/${productId}/inventoryQuantity`]: null,
+          [`products/${productId}/stock`]: null,
+          [`products/${productId}/inventoryUnitId`]: null,
+          [`products/${productId}/unit`]: ''
+        };
+
+        allInventoryCategories.forEach(category => {
+          const ids = Array.isArray(category.productIds) ? category.productIds : [];
+          if (ids.includes(productId)) {
+            updates[`inventoryCategories/${category.id}/productIds`] = ids.filter(id => id !== productId);
+          }
+        });
+
+        await db.ref().update(updates);
+        await loadData();
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم حذف المنتج من متابعة المخزون');
+        renderAccounting('inventoryProducts');
+      } catch (error) {
+        console.error('Error removing product from inventory:', error);
+        showToast('خطأ في حذف المنتج من متابعة المخزون', true);
+      }
+    }
+
+    function showAddProductsToInventoryModal() {
+      selectedProductsForInventory = [];
+      const availableProducts = allProducts.filter(product => !product.inventoryEnabled);
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-4xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة منتجات للمخزون</h2>
+          <input type="text" id="inventoryProductsSearch" oninput="filterAddInventoryProducts()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+          <div id="inventoryProductsCountBadge" class="bg-blue-50 p-3 rounded-lg mb-4 hidden">
+            <span id="inventoryProductsCount" class="font-bold text-blue-700">0</span> منتج محدد
+          </div>
+          <div id="inventoryProductsGrid" class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+            ${availableProducts.map(product => `
+              <div class="product-card inventory-product-card border-2" data-product-id="${product.id}" data-search="${product.nameAr || ''} ${product.nameEn || ''}" onclick="toggleInventoryProductSelection('${product.id}')">
+                <div class="text-3xl mb-2">📦</div>
+                <div class="font-bold mb-1">${product.nameAr || ''}</div>
+                <div class="text-blue-600 font-bold">${(parseFloat(product.price) || 0).toFixed(3)} د.ك</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button id="addInventoryProductsBtn" onclick="confirmAddProductsToInventory()" disabled class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">إضافة المنتجات المحددة</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function filterAddInventoryProducts() {
+      const searchTerm = (document.getElementById('inventoryProductsSearch')?.value || '').toLowerCase();
+      document.querySelectorAll('.inventory-product-card').forEach(card => {
+        const data = (card.getAttribute('data-search') || '').toLowerCase();
+        card.style.display = data.includes(searchTerm) ? '' : 'none';
+      });
+    }
+
+    function toggleInventoryProductSelection(productId) {
+      const card = document.querySelector(`.inventory-product-card[data-product-id="${productId}"]`);
+      if (!card) return;
+
+      if (selectedProductsForInventory.includes(productId)) {
+        selectedProductsForInventory = selectedProductsForInventory.filter(id => id !== productId);
+        card.style.borderColor = '#e5e7eb';
+        card.style.backgroundColor = 'white';
+      } else {
+        selectedProductsForInventory.push(productId);
+        card.style.borderColor = '#3b82f6';
+        card.style.backgroundColor = '#dbeafe';
+      }
+
+      const countBadge = document.getElementById('inventoryProductsCountBadge');
+      const countValue = document.getElementById('inventoryProductsCount');
+      const addBtn = document.getElementById('addInventoryProductsBtn');
+      if (countValue) countValue.textContent = String(selectedProductsForInventory.length);
+      if (addBtn) addBtn.disabled = selectedProductsForInventory.length === 0;
+      if (countBadge) {
+        if (selectedProductsForInventory.length > 0) countBadge.classList.remove('hidden');
+        else countBadge.classList.add('hidden');
+      }
+    }
+
+    async function confirmAddProductsToInventory() {
+      if (selectedProductsForInventory.length === 0) {
+        showToast('الرجاء اختيار منتج واحد على الأقل', true);
+        return;
+      }
+
+      for (const productId of selectedProductsForInventory) {
+        const product = allProducts.find(item => item.id === productId);
+        if (!product) continue;
+        product.inventoryEnabled = true;
+        product.inventoryQuantity = null;
+        product.stock = null;
+        product.inventoryUnitId = null;
+        product.unit = '';
+        await saveProduct(product);
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      showToast('تمت إضافة المنتجات إلى متابعة المخزون');
+      renderAccounting('inventoryProducts');
+    }
+
+    function setInventoryCategorySearchTerm(value) {
+      inventoryCategorySearchTerm = value;
+      renderAccounting('inventoryCategories');
+    }
+
+    function renderInventoryCategoriesSection() {
+      const filteredCategories = allInventoryCategories.filter(category => {
+        const searchText = `${category.nameAr || ''} ${category.nameEn || ''}`.toLowerCase();
+        return searchText.includes((inventoryCategorySearchTerm || '').toLowerCase());
+      });
+
+      return `
+        <div>
+          <div class="flex flex-wrap gap-3 justify-between items-center mb-6">
+            <div class="flex gap-3">
+              <button onclick="renderAccounting('inventory')" class="bg-gray-200 text-gray-800 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+              <button onclick="showInventoryCategoryModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة تصنيف جديد</button>
+            </div>
+            <h2 class="text-3xl font-bold text-blue-600">تصنيفات المخزون</h2>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <input type="text" value="${inventoryCategorySearchTerm || ''}" oninput="setInventoryCategorySearchTerm(this.value)" placeholder="🔍 بحث عن تصنيف..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم التصنيف</th>
+                    <th>عدد المنتجات</th>
+                    <th>تعديل</th>
+                    <th>حذف</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filteredCategories.length > 0 ? filteredCategories.map(category => {
+                    const productsCount = Array.isArray(category.productIds) ? category.productIds.length : 0;
+                    return `
+                      <tr class="cursor-pointer" onclick="openInventoryCategory('${category.id}')">
+                        <td>${category.nameAr || ''}${category.nameEn ? ` / ${category.nameEn}` : ''}</td>
+                        <td>${productsCount}</td>
+                        <td>
+                          <button onclick="event.stopPropagation(); showInventoryCategoryModal('${category.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                        </td>
+                        <td>
+                          <button onclick="event.stopPropagation(); confirmDeleteInventoryCategory('${category.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="4" class="text-center text-gray-500 py-8">لا توجد تصنيفات مخزون</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showInventoryCategoryModal(categoryId = '') {
+      const category = categoryId ? allInventoryCategories.find(item => item.id === categoryId) : null;
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-lg">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">${category ? 'تعديل تصنيف المخزون' : 'إضافة تصنيف مخزون'}</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم التصنيف بالعربي</label>
+              <input type="text" id="inventoryCategoryNameAr" value="${category?.nameAr || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم التصنيف بالإنجليزي</label>
+              <input type="text" id="inventoryCategoryNameEn" value="${category?.nameEn || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="saveInventoryCategoryFromModal('${categoryId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">${category ? 'حفظ' : 'إضافة'}</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function saveInventoryCategoryFromModal(categoryId = '') {
+      const nameAr = document.getElementById('inventoryCategoryNameAr').value.trim();
+      const nameEn = document.getElementById('inventoryCategoryNameEn').value.trim();
+
+      if (!nameAr || !nameEn) {
+        showToast('الرجاء إدخال الاسم بالعربي والإنجليزي', true);
+        return;
+      }
+
+      const existing = categoryId ? allInventoryCategories.find(item => item.id === categoryId) : null;
+      const success = await saveInventoryCategory({
+        id: categoryId || undefined,
+        nameAr,
+        nameEn,
+        productIds: existing?.productIds || []
+      });
+
+      if (!success) return;
+      document.querySelector('.modal-overlay')?.remove();
+      showToast(categoryId ? 'تم تعديل التصنيف بنجاح' : 'تم إضافة التصنيف بنجاح');
+      renderAccounting('inventoryCategories');
+    }
+
+    function confirmDeleteInventoryCategory(categoryId) {
+      const category = allInventoryCategories.find(item => item.id === categoryId);
+      if (!category) {
+        showToast('التصنيف غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف التصنيف</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف التصنيف "${category.nameAr || ''}"؟</p>
+          <div class="flex gap-3">
+            <button onclick="deleteInventoryCategoryConfirmed('${categoryId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteInventoryCategoryConfirmed(categoryId) {
+      try {
+        await db.ref(`inventoryCategories/${categoryId}`).remove();
+        await loadData();
+        document.querySelector('.modal-overlay')?.remove();
+        if (selectedInventoryCategoryId === categoryId) {
+          selectedInventoryCategoryId = '';
+        }
+        showToast('تم حذف التصنيف');
+        renderAccounting('inventoryCategories');
+      } catch (error) {
+        console.error('Error deleting inventory category:', error);
+        showToast('خطأ في حذف التصنيف', true);
+      }
+    }
+
+    function openInventoryCategory(categoryId) {
+      selectedInventoryCategoryId = categoryId;
+      inventoryCategoryProductsSearchTerm = '';
+      renderAccounting('inventoryCategoryDetails');
+    }
+
+    function setInventoryCategoryProductsSearchTerm(value) {
+      inventoryCategoryProductsSearchTerm = value;
+      renderAccounting('inventoryCategoryDetails');
+    }
+
+    function renderInventoryCategoryDetailsSection() {
+      const category = allInventoryCategories.find(item => item.id === selectedInventoryCategoryId);
+      if (!category) {
+        return `
+          <div class="text-center py-10">
+            <p class="text-gray-600 mb-4">التصنيف غير موجود</p>
+            <button onclick="renderAccounting('inventoryCategories')" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">رجوع</button>
+          </div>
+        `;
+      }
+
+      const categoryProductIds = new Set(Array.isArray(category.productIds) ? category.productIds : []);
+      const products = getTrackedInventoryProducts().filter(product => categoryProductIds.has(product.id)).filter(product => {
+        const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
+        return searchText.includes((inventoryCategoryProductsSearchTerm || '').toLowerCase());
+      });
+
+      return `
+        <div>
+          <div class="flex flex-wrap gap-3 justify-between items-center mb-6">
+            <div class="flex gap-3">
+              <button onclick="renderAccounting('inventoryCategories')" class="bg-gray-200 text-gray-800 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+              <button onclick="showAddInventoryProductsToCategoryModal('${category.id}')" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة منتج</button>
+            </div>
+            <h2 class="text-3xl font-bold text-blue-600">${category.nameAr || ''}</h2>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <input type="text" value="${inventoryCategoryProductsSearchTerm || ''}" oninput="setInventoryCategoryProductsSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>السعر</th>
+                    <th>الكمية</th>
+                    <th>الوحدة</th>
+                    <th>إزالة من التصنيف</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${products.length > 0 ? products.map(product => `
+                    <tr>
+                      <td>${product.nameAr || ''}</td>
+                      <td>${product.nameEn || ''}</td>
+                      <td>${(parseFloat(product.price) || 0).toFixed(3)} د.ك</td>
+                      <td>${getInventoryQuantityText(product)}</td>
+                      <td>${getInventoryUnitName(product.inventoryUnitId) || '-'}</td>
+                      <td><button onclick="removeProductFromInventoryCategory('${product.id}', '${category.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">إزالة</button></td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد منتجات في هذا التصنيف</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showAddInventoryProductsToCategoryModal(categoryId) {
+      selectedInventoryProductsForCategory = [];
+      const category = allInventoryCategories.find(item => item.id === categoryId);
+      if (!category) return;
+      const selectedSet = new Set(Array.isArray(category.productIds) ? category.productIds : []);
+      const availableProducts = getTrackedInventoryProducts().filter(product => !selectedSet.has(product.id));
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-4xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة منتج للتصنيف</h2>
+          <input type="text" id="inventoryCategoryProductsSearch" oninput="filterInventoryCategoryProductsForAdd()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+          <div id="inventoryCategoryProductsCountBadge" class="bg-blue-50 p-3 rounded-lg mb-4 hidden">
+            <span id="inventoryCategoryProductsCount" class="font-bold text-blue-700">0</span> منتج محدد
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+            ${availableProducts.map(product => `
+              <div class="product-card add-inventory-category-product-card border-2" data-product-id="${product.id}" data-search="${product.nameAr || ''} ${product.nameEn || ''}" onclick="toggleInventoryCategoryProductSelection('${product.id}')">
+                <div class="text-3xl mb-2">📦</div>
+                <div class="font-bold mb-1">${product.nameAr || ''}</div>
+                <div class="text-blue-600 font-bold">${(parseFloat(product.price) || 0).toFixed(3)} د.ك</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button id="saveInventoryCategoryProductsBtn" onclick="addSelectedInventoryProductsToInventoryCategory('${categoryId}')" disabled class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">إضافة المنتجات المحددة</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function filterInventoryCategoryProductsForAdd() {
+      const searchTerm = (document.getElementById('inventoryCategoryProductsSearch')?.value || '').toLowerCase();
+      document.querySelectorAll('.add-inventory-category-product-card').forEach(card => {
+        const data = (card.getAttribute('data-search') || '').toLowerCase();
+        card.style.display = data.includes(searchTerm) ? '' : 'none';
+      });
+    }
+
+    function toggleInventoryCategoryProductSelection(productId) {
+      const card = document.querySelector(`.add-inventory-category-product-card[data-product-id="${productId}"]`);
+      if (!card) return;
+
+      if (selectedInventoryProductsForCategory.includes(productId)) {
+        selectedInventoryProductsForCategory = selectedInventoryProductsForCategory.filter(id => id !== productId);
+        card.style.borderColor = '#e5e7eb';
+        card.style.backgroundColor = 'white';
+      } else {
+        selectedInventoryProductsForCategory.push(productId);
+        card.style.borderColor = '#3b82f6';
+        card.style.backgroundColor = '#dbeafe';
+      }
+
+      const countBadge = document.getElementById('inventoryCategoryProductsCountBadge');
+      const countValue = document.getElementById('inventoryCategoryProductsCount');
+      const saveBtn = document.getElementById('saveInventoryCategoryProductsBtn');
+      if (countValue) countValue.textContent = String(selectedInventoryProductsForCategory.length);
+      if (saveBtn) saveBtn.disabled = selectedInventoryProductsForCategory.length === 0;
+      if (countBadge) {
+        if (selectedInventoryProductsForCategory.length > 0) countBadge.classList.remove('hidden');
+        else countBadge.classList.add('hidden');
+      }
+    }
+
+    async function addSelectedInventoryProductsToInventoryCategory(categoryId) {
+      if (selectedInventoryProductsForCategory.length === 0) {
+        showToast('الرجاء اختيار منتج واحد على الأقل', true);
+        return;
+      }
+
+      const category = allInventoryCategories.find(item => item.id === categoryId);
+      if (!category) return;
+      const existing = new Set(Array.isArray(category.productIds) ? category.productIds : []);
+      selectedInventoryProductsForCategory.forEach(id => existing.add(id));
+      category.productIds = Array.from(existing);
+
+      const success = await saveInventoryCategory(category);
+      if (!success) return;
+      document.querySelector('.modal-overlay')?.remove();
+      showToast('تم إضافة المنتجات إلى التصنيف');
+      openInventoryCategory(categoryId);
+    }
+
+    async function removeProductFromInventoryCategory(productId, categoryId) {
+      const category = allInventoryCategories.find(item => item.id === categoryId);
+      if (!category) return;
+
+      const currentIds = Array.isArray(category.productIds) ? category.productIds : [];
+      category.productIds = currentIds.filter(id => id !== productId);
+
+      const success = await saveInventoryCategory(category);
+      if (!success) return;
+      showToast('تمت إزالة المنتج من التصنيف');
+      openInventoryCategory(categoryId);
+    }
+
+    // Issue Section
+    function resetIssueVoucherDraft(shouldRender = true) {
+      currentIssueVoucherDraft = {
+        warehouseKeeper: '',
+        cashierId: '',
+        invoiceNumber: '',
+        items: []
+      };
+      issueProductSearchTerm = '';
+      if (shouldRender) renderAccounting('issue');
+    }
+
+    function openIssueVoucherModal() {
+      resetIssueVoucherDraft(false);
+      isIssueVoucherModalOpen = true;
+      renderAccounting('issue');
+    }
+
+    function closeIssueVoucherModal() {
+      isIssueVoucherModalOpen = false;
+      issueProductSearchTerm = '';
+      renderAccounting('issue');
+    }
+
+    function setIssueProductSearchTerm(value) {
+      issueProductSearchTerm = value;
+      renderAccounting('issue');
+    }
+
+    function renderIssueVoucherModal() {
+      const searchTerm = (issueProductSearchTerm || '').toLowerCase();
+      const products = getTrackedInventoryProducts().filter(product => {
+        const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
+        return searchText.includes(searchTerm);
+      });
+
+      return `
+        <div class="issue-voucher-overlay" onclick="if(event.target === this) closeIssueVoucherModal()" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 20px;">
+          <div class="modal-content p-6 w-full max-w-6xl max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-2xl font-bold text-blue-600">إضافة سند صرف</h3>
+              <button onclick="closeIssueVoucherModal()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم أمين المخزن</label>
+                <input type="text" value="${currentIssueVoucherDraft.warehouseKeeper || ''}" oninput="currentIssueVoucherDraft.warehouseKeeper = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم الكاشير</label>
+                <select onchange="handleIssueCashierSelection(this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <option value="">-- اختر --</option>
+                  ${allIssueCashiers.map(cashier => `<option value="${cashier.id}" ${currentIssueVoucherDraft.cashierId === cashier.id ? 'selected' : ''}>${cashier.name || ''}</option>`).join('')}
+                  <option value="__add_new__">➕ إضافة كاشير</option>
+                  <option value="__edit_selected__">✏️ تعديل الكاشير المحدد</option>
+                  <option value="__delete_selected__">🗑️ حذف الكاشير المحدد</option>
+                </select>
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">رقم الفاتورة</label>
+                <input type="text" value="${currentIssueVoucherDraft.invoiceNumber || ''}" oninput="this.value = normalizeDecimalInput(this.value); currentIssueVoucherDraft.invoiceNumber = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">بحث عن منتج</label>
+              <div class="flex gap-2">
+                <input id="issueProductSearchField" type="text" value="${issueProductSearchTerm || ''}" oninput="setIssueProductSearchTerm(this.value)" placeholder="🔍 ابحث عن منتج لإضافته إلى سند الصرف" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <button onclick="setIssueProductSearchTerm(document.getElementById('issueProductSearchField').value)" class="bg-blue-600 text-white px-5 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-64 overflow-y-auto mb-6">
+              ${products.map(product => `
+                <button onclick="showIssueQuantityModal('${product.id}')" class="border-2 border-gray-200 rounded-lg p-4 text-right hover:border-blue-500 hover:bg-blue-50 transition">
+                  <div class="font-bold">${product.nameAr || ''}</div>
+                  <div class="text-sm text-gray-500 mb-1">${product.nameEn || ''}</div>
+                  <div class="text-sm text-blue-700 font-bold">المتوفر: ${getInventoryQuantityText(product) || '0'} ${getInventoryUnitName(product.inventoryUnitId) || ''}</div>
+                </button>
+              `).join('')}
+              ${products.length === 0 ? '<div class="text-gray-500 py-4">لا توجد نتائج بحث</div>' : ''}
+            </div>
+
+            <div class="overflow-x-auto mb-4">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>الكمية المصروفة</th>
+                    <th>الوحدة</th>
+                    <th>إزالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${currentIssueVoucherDraft.items.length > 0 ? currentIssueVoucherDraft.items.map(item => {
+                    const product = allProducts.find(p => p.id === item.productId);
+                    return `
+                      <tr>
+                        <td>${product?.nameAr || ''}</td>
+                        <td>${product?.nameEn || ''}</td>
+                        <td>${Number(item.quantity || 0).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}</td>
+                        <td>${getInventoryUnitName(product?.inventoryUnitId) || '-'}</td>
+                        <td><button onclick="removeIssueProduct('${item.productId}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button></td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="5" class="text-center text-gray-500 py-6">لا توجد منتجات مضافة في سند الصرف</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="flex gap-3">
+              <button onclick="submitIssueVoucher()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">صرف</button>
+              <button onclick="closeIssueVoucherModal()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إغلاق</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderIssueSection() {
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">صرف</h2>
+            <button onclick="openIssueVoucherModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة سند صرف</button>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h3 class="text-2xl font-bold text-blue-600 mb-4">حركات المخزون</h3>
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>رقم السند</th>
+                    <th>التاريخ</th>
+                    <th>أمين المخزن</th>
+                    <th>الكاشير</th>
+                    <th>رقم الفاتورة</th>
+                    <th>عدد المنتجات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${allInventoryIssues.length > 0 ? allInventoryIssues.map(issue => `
+                    <tr>
+                      <td>${issue.voucherNumber || '-'}</td>
+                      <td>${issue.timestamp ? `${formatDate(issue.timestamp)} ${formatTime(issue.timestamp)}` : '-'}</td>
+                      <td>${issue.warehouseKeeper || '-'}</td>
+                      <td>${issue.cashierName || '-'}</td>
+                      <td>${issue.invoiceNumber || '-'}</td>
+                      <td>${Array.isArray(issue.items) ? issue.items.length : 0}</td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد حركات صرف بعد</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          ${isIssueVoucherModalOpen ? renderIssueVoucherModal() : ''}
+        </div>
+      `;
+    }
+
+    function handleIssueCashierSelection(value) {
+      if (value === '__add_new__') {
+        showAddIssueCashierModal();
+        return;
+      }
+      if (value === '__edit_selected__') {
+        if (!currentIssueVoucherDraft.cashierId) {
+          showToast('اختر كاشير أولاً ثم أعد المحاولة', true);
+          renderAccounting('issue');
+          return;
+        }
+        showEditIssueCashierModal(currentIssueVoucherDraft.cashierId);
+        return;
+      }
+      if (value === '__delete_selected__') {
+        if (!currentIssueVoucherDraft.cashierId) {
+          showToast('اختر كاشير أولاً ثم أعد المحاولة', true);
+          renderAccounting('issue');
+          return;
+        }
+        confirmDeleteIssueCashier(currentIssueVoucherDraft.cashierId);
+        return;
+      }
+      currentIssueVoucherDraft.cashierId = value;
+    }
+
+    function showAddIssueCashierModal() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة كاشير</h2>
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">اسم الكاشير</label>
+            <input type="text" id="newIssueCashierName" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="addIssueCashierFromModal()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">إضافة</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting('issue');" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function addIssueCashierFromModal() {
+      const name = document.getElementById('newIssueCashierName').value.trim();
+      if (!name) {
+        showToast('الرجاء إدخال اسم الكاشير', true);
+        return;
+      }
+
+      const result = await saveIssueCashier({ name });
+      if (!result.success) return;
+      currentIssueVoucherDraft.cashierId = result.id;
+      document.querySelector('.modal-overlay')?.remove();
+      showToast('تم إضافة الكاشير بنجاح');
+      renderAccounting('issue');
+    }
+
+    function showEditIssueCashierModal(cashierId) {
+      const cashier = allIssueCashiers.find(item => item.id === cashierId);
+      if (!cashier) {
+        showToast('الكاشير غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">تعديل اسم الكاشير</h2>
+          <div>
+            <label class="block mb-2 font-bold text-gray-700">اسم الكاشير</label>
+            <input type="text" id="editIssueCashierName" value="${cashier.name || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="saveEditedIssueCashier('${cashierId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting('issue');" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function saveEditedIssueCashier(cashierId) {
+      const name = document.getElementById('editIssueCashierName').value.trim();
+      if (!name) {
+        showToast('الرجاء إدخال اسم الكاشير', true);
+        return;
+      }
+
+      try {
+        await db.ref(`inventoryIssueCashiers/${cashierId}/name`).set(name);
+        await loadData();
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم تعديل اسم الكاشير');
+        renderAccounting('issue');
+      } catch (error) {
+        console.error('Error editing issue cashier:', error);
+        showToast('خطأ في تعديل اسم الكاشير', true);
+      }
+    }
+
+    function confirmDeleteIssueCashier(cashierId) {
+      const cashier = allIssueCashiers.find(item => item.id === cashierId);
+      if (!cashier) {
+        showToast('الكاشير غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف الكاشير</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف "${cashier.name || ''}" من القائمة؟</p>
+          <div class="flex gap-3">
+            <button onclick="deleteIssueCashierConfirmed('${cashierId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove(); renderAccounting('issue');" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteIssueCashierConfirmed(cashierId) {
+      try {
+        await db.ref(`inventoryIssueCashiers/${cashierId}`).remove();
+        await loadData();
+        if (currentIssueVoucherDraft.cashierId === cashierId) {
+          currentIssueVoucherDraft.cashierId = '';
+        }
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم حذف الكاشير');
+        renderAccounting('issue');
+      } catch (error) {
+        console.error('Error deleting issue cashier:', error);
+        showToast('خطأ في حذف الكاشير', true);
+      }
+    }
+
+    function showIssueQuantityModal(productId) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+      const available = parseInventoryQuantity(product);
+      const unitName = getInventoryUnitName(product.inventoryUnitId);
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-md">
+          <h3 class="text-xl font-bold text-blue-600 mb-2">${product.nameAr || ''}</h3>
+          <p class="text-gray-700 mb-4">الكمية المتوفرة: <span class="font-bold">${Number(available).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}</span> ${unitName}</p>
+
+          <input id="issueQuantityDisplay" type="text" value="" readonly class="w-full text-center text-3xl font-bold p-3 border-2 border-blue-300 rounded-lg mb-4">
+
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            ${[
+              ['٧', '7'], ['٨', '8'], ['٩', '9'],
+              ['٤', '4'], ['٥', '5'], ['٦', '6'],
+              ['١', '1'], ['٢', '2'], ['٣', '3'],
+              ['٠', '0'], ['٫', '.'], ['⌫', 'delete']
+            ].map(item => `
+              <button onclick="handleIssueKeypadPress('${item[1]}')" class="bg-gray-100 hover:bg-gray-200 rounded-lg py-3 text-2xl font-bold">${item[0]}</button>
+            `).join('')}
+          </div>
+
+          <div class="flex gap-3">
+            <button onclick="addProductToIssue('${productId}')" class="flex-1 bg-green-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-green-700 transition">إضافة المنتج</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function handleIssueKeypadPress(value) {
+      const display = document.getElementById('issueQuantityDisplay');
+      if (!display) return;
+      if (value === 'delete') {
+        display.value = display.value.slice(0, -1);
+        return;
+      }
+      if (value === '.') {
+        if (!display.value.includes('.')) display.value += '.';
+        return;
+      }
+      display.value += value;
+    }
+
+    function addProductToIssue(productId) {
+      const display = document.getElementById('issueQuantityDisplay');
+      const product = allProducts.find(item => item.id === productId);
+      if (!display || !product) return;
+
+      const normalized = normalizeDecimalInput(display.value);
+      const quantity = parseFloat(normalized);
+      if (isNaN(quantity) || quantity <= 0) {
+        showToast('الرجاء إدخال كمية صحيحة', true);
+        return;
+      }
+
+      const available = parseInventoryQuantity(product);
+      const existingItem = currentIssueVoucherDraft.items.find(item => item.productId === productId);
+      const existingQuantity = existingItem ? parseFloat(existingItem.quantity) || 0 : 0;
+      if (quantity + existingQuantity > available) {
+        showToast('الكمية المطلوبة أكبر من الكمية المتوفرة', true);
+        return;
+      }
+
+      if (existingItem) {
+        existingItem.quantity = parseFloat((existingQuantity + quantity).toFixed(3));
+      } else {
+        currentIssueVoucherDraft.items.push({
+          productId,
+          quantity: parseFloat(quantity.toFixed(3))
+        });
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      issueProductSearchTerm = '';
+      renderAccounting('issue');
+    }
+
+    function removeIssueProduct(productId) {
+      currentIssueVoucherDraft.items = currentIssueVoucherDraft.items.filter(item => item.productId !== productId);
+      renderAccounting('issue');
+    }
+
+    async function submitIssueVoucher() {
+      const warehouseKeeper = (currentIssueVoucherDraft.warehouseKeeper || '').trim();
+      const cashierId = currentIssueVoucherDraft.cashierId;
+      const invoiceNumber = normalizeDecimalInput(currentIssueVoucherDraft.invoiceNumber || '');
+      const items = Array.isArray(currentIssueVoucherDraft.items) ? currentIssueVoucherDraft.items : [];
+
+      if (!warehouseKeeper) {
+        showToast('الرجاء إدخال اسم أمين المخزن', true);
+        return;
+      }
+      if (!cashierId) {
+        showToast('الرجاء اختيار اسم الكاشير', true);
+        return;
+      }
+      if (!invoiceNumber) {
+        showToast('الرجاء إدخال رقم الفاتورة', true);
+        return;
+      }
+      if (items.length === 0) {
+        showToast('الرجاء إضافة منتج واحد على الأقل', true);
+        return;
+      }
+
+      for (const item of items) {
+        const product = allProducts.find(p => p.id === item.productId);
+        if (!product) {
+          showToast('تم العثور على منتج غير صالح في السند', true);
+          return;
+        }
+        if ((parseFloat(item.quantity) || 0) > parseInventoryQuantity(product)) {
+          showToast(`الكمية غير متوفرة للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+          return;
+        }
+      }
+
+      try {
+        const issueId = generateId();
+        const voucherNumber = await generateInventoryIssueNumber();
+        const cashier = allIssueCashiers.find(item => item.id === cashierId);
+        const timestamp = Date.now();
+
+        const updates = {};
+        const issueItems = [];
+
+        items.forEach(item => {
+          const product = allProducts.find(p => p.id === item.productId);
+          const currentQuantity = parseInventoryQuantity(product);
+          const newQuantity = parseFloat((currentQuantity - (parseFloat(item.quantity) || 0)).toFixed(3));
+
+          updates[`products/${product.id}/inventoryQuantity`] = newQuantity;
+          updates[`products/${product.id}/stock`] = newQuantity;
+
+          issueItems.push({
+            productId: product.id,
+            nameAr: product.nameAr || '',
+            nameEn: product.nameEn || '',
+            quantity: parseFloat((parseFloat(item.quantity) || 0).toFixed(3)),
+            unitId: product.inventoryUnitId || null,
+            unitName: getInventoryUnitName(product.inventoryUnitId) || ''
+          });
+        });
+
+        updates[`inventoryIssues/${issueId}`] = {
+          id: issueId,
+          voucherNumber,
+          warehouseKeeper,
+          cashierId,
+          cashierName: cashier?.name || '',
+          invoiceNumber,
+          items: issueItems,
+          timestamp
+        };
+
+        await db.ref().update(updates);
+        showToast(`تم الصرف بنجاح. رقم السند: ${voucherNumber}`);
+        isIssueVoucherModalOpen = false;
+        resetIssueVoucherDraft(false);
+        renderAccounting('issue');
+      } catch (error) {
+        console.error('Error submitting issue voucher:', error);
+        showToast('حدث خطأ أثناء تنفيذ الصرف', true);
+      }
+    }
 
     // Devices and Cashiers Section
     function renderDevicesSection() {
