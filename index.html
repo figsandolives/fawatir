@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&amp;display=swap" rel="stylesheet">
   <style>
     body {
-      box-sizing: border-box; 
+      box-sizing: border-box;
       margin: 0;
       padding: 0;
       font-family: 'Cairo', sans-serif;
@@ -239,11 +239,15 @@
     let allInventoryUnits = [];
     let allIssueCashiers = [];
     let allInventoryIssues = [];
+    let allInventoryTransfers = [];
     let selectedInventoryCategoryId = '';
     let inventoryProductSearchTerm = '';
     let inventoryCategorySearchTerm = '';
     let inventoryCategoryProductsSearchTerm = '';
+    let inventoryProductsBranchFilter = 'main';
+    let inventoryCategoryBranchFilter = 'main';
     let issueProductSearchTerm = '';
+    let transferProductSearchTerm = '';
     let selectedProductsForInventory = [];
     let selectedInventoryProductsForCategory = [];
     let currentIssueVoucherDraft = {
@@ -252,10 +256,23 @@
       invoiceNumber: '',
       items: []
     };
+    let editingIssueVoucherId = '';
+    let currentTransferVoucherDraft = {
+      warehouseKeeper: '',
+      targetBranchId: '',
+      items: []
+    };
+    let editingTransferVoucherId = '';
     let isIssueVoucherModalOpen = false;
+    let isTransferVoucherModalOpen = false;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
+    const INVENTORY_BRANCHES = [
+      { id: 'main', name: 'الفرع الرئيسي' },
+      { id: 'yarmouk', name: 'فرع اليرموك' },
+      { id: 'abu_hasaniya', name: 'فرع أبو الحصانية' }
+    ];
 
     // Helper Functions
     function generateId() {
@@ -516,24 +533,111 @@
       return normalized;
     }
 
-    function parseInventoryQuantity(product) {
+    function getInventoryBranchName(branchId) {
+      if (branchId === 'all') return 'كل الفروع';
+      const branch = INVENTORY_BRANCHES.find(item => item.id === branchId);
+      return branch ? branch.name : '';
+    }
+
+    function getInventoryBranchOptionsHtml(selectedBranchId = 'main', includeAll = false, includeMain = true) {
+      const options = [];
+      if (includeAll) {
+        options.push(`<option value="all" ${selectedBranchId === 'all' ? 'selected' : ''}>كل الفروع</option>`);
+      }
+
+      INVENTORY_BRANCHES.forEach(branch => {
+        if (!includeMain && branch.id === 'main') return;
+        options.push(`<option value="${branch.id}" ${selectedBranchId === branch.id ? 'selected' : ''}>${branch.name}</option>`);
+      });
+
+      return options.join('');
+    }
+
+    function formatInventoryDecimal(value) {
+      const number = parseFloat(value);
+      if (isNaN(number)) return '0';
+      return Number.isInteger(number) ? String(number) : number.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    function getMainInventoryRawQuantity(product) {
+      if (!product) return null;
+      const branchRaw = product.inventoryBranchQuantities && product.inventoryBranchQuantities.main !== undefined
+        ? product.inventoryBranchQuantities.main
+        : undefined;
+      if (branchRaw !== undefined && branchRaw !== null && branchRaw !== '') return branchRaw;
+      if (product.inventoryQuantity !== undefined && product.inventoryQuantity !== null && product.inventoryQuantity !== '') {
+        return product.inventoryQuantity;
+      }
+      if (product.stock !== undefined && product.stock !== null && product.stock !== '') {
+        return product.stock;
+      }
+      return null;
+    }
+
+    function parseInventoryQuantity(product, branchId = 'main') {
       if (!product) return 0;
-      const raw = product.inventoryQuantity !== undefined && product.inventoryQuantity !== null
-        ? product.inventoryQuantity
-        : product.stock;
+      if (branchId === 'all') {
+        const mainValue = parseInventoryQuantity(product, 'main');
+        const yarmoukValue = parseInventoryQuantity(product, 'yarmouk');
+        const abuHasaniyaValue = parseInventoryQuantity(product, 'abu_hasaniya');
+        return parseFloat((mainValue + yarmoukValue + abuHasaniyaValue).toFixed(3));
+      }
+
+      let raw = null;
+      if (branchId === 'main') {
+        raw = getMainInventoryRawQuantity(product);
+      } else {
+        raw = product.inventoryBranchQuantities && product.inventoryBranchQuantities[branchId] !== undefined
+          ? product.inventoryBranchQuantities[branchId]
+          : null;
+      }
+
       const value = parseFloat(raw);
       return isNaN(value) ? 0 : value;
     }
 
-    function getInventoryQuantityText(product) {
+    function getInventoryQuantityText(product, branchId = 'main') {
       if (!product) return '';
-      const raw = product.inventoryQuantity !== undefined && product.inventoryQuantity !== null
-        ? product.inventoryQuantity
-        : product.stock;
-      if (raw === '' || raw === null || raw === undefined) return '';
+      if (branchId === 'all') {
+        return formatInventoryDecimal(parseInventoryQuantity(product, 'all'));
+      }
+
+      const raw = branchId === 'main'
+        ? getMainInventoryRawQuantity(product)
+        : (product.inventoryBranchQuantities && product.inventoryBranchQuantities[branchId] !== undefined
+            ? product.inventoryBranchQuantities[branchId]
+            : 0);
+
+      if (raw === '' || raw === null || raw === undefined) {
+        return branchId === 'main' ? '' : '0';
+      }
+
       const value = parseFloat(raw);
-      if (isNaN(value)) return '';
+      if (isNaN(value)) return branchId === 'main' ? '' : '0';
       return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    function ensureInventoryBranchQuantities(product) {
+      if (!product) return { main: 0, yarmouk: 0, abu_hasaniya: 0 };
+      return {
+        main: parseInventoryQuantity(product, 'main'),
+        yarmouk: parseInventoryQuantity(product, 'yarmouk'),
+        abu_hasaniya: parseInventoryQuantity(product, 'abu_hasaniya')
+      };
+    }
+
+    function getInventoryQuantityByFilterText(product, branchId = 'main') {
+      if (branchId === 'all') {
+        const quantities = ensureInventoryBranchQuantities(product);
+        return `
+          <div class="text-xs leading-6">
+            <div><span class="font-bold">الرئيسي:</span> ${formatInventoryDecimal(quantities.main)}</div>
+            <div><span class="font-bold">اليرموك:</span> ${formatInventoryDecimal(quantities.yarmouk)}</div>
+            <div><span class="font-bold">أبو الحصانية:</span> ${formatInventoryDecimal(quantities.abu_hasaniya)}</div>
+          </div>
+        `;
+      }
+      return formatInventoryDecimal(parseInventoryQuantity(product, branchId));
     }
 
     function getInventoryUnitName(unitId) {
@@ -648,12 +752,23 @@ function setupRealtimeListeners() {
     allInventoryIssues.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     refreshUI();
   });
+
+  // 10. مراقبة سندات التحويلات
+  db.ref('inventoryTransfers').on('value', (snapshot) => {
+    allInventoryTransfers = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    allInventoryTransfers.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    refreshUI();
+  });
 }
 
 // 2. دالة تحديث واجهة المستخدم بدون ريفريش
 function refreshUI() {
   // لا تقم بتحديث الشاشة إذا كان المستخدم يفتح نافذة (Modal) لكي لا يضيع ما يكتبه
-  if (document.querySelector('.modal-overlay')) return;
+  if (
+    document.querySelector('.modal-overlay') ||
+    document.querySelector('.issue-voucher-overlay') ||
+    document.querySelector('.transfer-voucher-overlay')
+  ) return;
 
   if (currentScreen === 'cashier') {
     renderCashier();
@@ -762,6 +877,14 @@ function refreshUI() {
       const currentCounter = (snapshot.val() || 0) + 1;
       await counterRef.set(currentCounter);
       return `SRF-${String(currentCounter).padStart(6, '0')}`;
+    }
+
+    async function generateInventoryTransferNumber() {
+      const counterRef = db.ref('inventoryTransferCounter');
+      const snapshot = await counterRef.once('value');
+      const currentCounter = (snapshot.val() || 0) + 1;
+      await counterRef.set(currentCounter);
+      return `TRF-${String(currentCounter).padStart(6, '0')}`;
     }
 
     async function saveCustomer(customer) {
@@ -2130,7 +2253,13 @@ function renderAccounting(section) {
   currentAccountingSection = section; 
   if (section !== 'issue') {
     isIssueVoucherModalOpen = false;
+    editingIssueVoucherId = '';
     issueProductSearchTerm = '';
+  }
+  if (section !== 'transfer') {
+    isTransferVoucherModalOpen = false;
+    editingTransferVoucherId = '';
+    transferProductSearchTerm = '';
   }
   
   const app = document.getElementById('app');
@@ -2160,6 +2289,9 @@ function renderAccounting(section) {
           </div>
           <div class="sidebar-item ${section === 'issue' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('issue')">
             🧾 صرف
+          </div>
+          <div class="sidebar-item ${section === 'transfer' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('transfer')">
+            🔁 تحويلات
           </div>
           <div class="sidebar-item ${section === 'devices' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('devices')">
             🖥️ الأجهزة والكاشير
@@ -2202,6 +2334,8 @@ function renderAccountingContent(section) {
       return renderInventoryCategoryDetailsSection();
     case 'issue':
       return renderIssueSection();
+    case 'transfer':
+      return renderTransferSection();
     case 'devices': 
       return renderDevicesSection();
     default: 
@@ -4765,11 +4899,43 @@ function toggleProductSelection(productId, categoryId) {
       renderAccounting('inventoryProducts');
     }
 
+    function setInventoryProductsBranchFilter(value) {
+      inventoryProductsBranchFilter = value;
+      renderAccounting('inventoryProducts');
+    }
+
+    function renderInventoryProductsQuantityCell(product) {
+      if (inventoryProductsBranchFilter === 'main') {
+        return `
+          <input
+            type="text"
+            value="${getInventoryQuantityText(product, 'main')}"
+            placeholder="أدخل الكمية"
+            oninput="this.value = normalizeDecimalInput(this.value)"
+            onblur="saveInventoryProductQuantity('${product.id}', this.value)"
+            class="w-32 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none"
+          >
+        `;
+      }
+
+      if (inventoryProductsBranchFilter === 'all') {
+        return getInventoryQuantityByFilterText(product, 'all');
+      }
+
+      return `
+        <div class="font-bold text-blue-700">${getInventoryQuantityText(product, inventoryProductsBranchFilter) || '0'}</div>
+        <div class="text-xs text-gray-500">عرض فقط</div>
+      `;
+    }
+
     function renderInventoryProductsSection() {
       const trackedProducts = getTrackedInventoryProducts().filter(product => {
         const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
         return searchText.includes((inventoryProductSearchTerm || '').toLowerCase());
       });
+      const branchQuantityHeader = inventoryProductsBranchFilter === 'all'
+        ? 'كل الفروع'
+        : getInventoryBranchName(inventoryProductsBranchFilter || 'main');
 
       return `
         <div>
@@ -4782,7 +4948,13 @@ function toggleProductSelection(productId, categoryId) {
           </div>
 
           <div class="bg-white p-6 rounded-xl shadow-lg">
-            <input type="text" value="${inventoryProductSearchTerm || ''}" oninput="setInventoryProductSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <input type="text" value="${inventoryProductSearchTerm || ''}" oninput="setInventoryProductSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <select onchange="setInventoryProductsBranchFilter(this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                ${getInventoryBranchOptionsHtml(inventoryProductsBranchFilter, true, true)}
+              </select>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">أي كمية يتم إدخالها مباشرة هنا تُحفظ للفرع الرئيسي فقط.</p>
             <div class="overflow-x-auto">
               <table>
                 <thead>
@@ -4790,7 +4962,7 @@ function toggleProductSelection(productId, categoryId) {
                     <th>اسم المنتج بالعربي</th>
                     <th>اسم المنتج بالإنجليزي</th>
                     <th>السعر</th>
-                    <th>الكمية</th>
+                    <th>الكمية (${branchQuantityHeader})</th>
                     <th>الوحدة</th>
                     <th>الإجراءات</th>
                   </tr>
@@ -4801,16 +4973,7 @@ function toggleProductSelection(productId, categoryId) {
                       <td>${product.nameAr || ''}</td>
                       <td>${product.nameEn || ''}</td>
                       <td>${(parseFloat(product.price) || 0).toFixed(3)} د.ك</td>
-                      <td>
-                        <input
-                          type="text"
-                          value="${getInventoryQuantityText(product)}"
-                          placeholder="أدخل الكمية"
-                          oninput="this.value = normalizeDecimalInput(this.value)"
-                          onblur="saveInventoryProductQuantity('${product.id}', this.value)"
-                          class="w-32 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none"
-                        >
-                      </td>
+                      <td>${renderInventoryProductsQuantityCell(product)}</td>
                       <td>
                         <select onchange="handleInventoryUnitChange('${product.id}', this.value)" class="p-2 border-2 border-gray-300 rounded-lg w-52 focus:border-blue-600 focus:outline-none">
                           <option value="">-- اختر --</option>
@@ -4847,6 +5010,13 @@ function toggleProductSelection(productId, categoryId) {
       if (!product) return;
       const normalized = normalizeDecimalInput(value);
       const quantity = normalized === '' ? null : parseFloat(normalized);
+      if (quantity !== null && isNaN(quantity)) return;
+      const branchQuantities = ensureInventoryBranchQuantities(product);
+      product.inventoryBranchQuantities = {
+        main: quantity,
+        yarmouk: branchQuantities.yarmouk,
+        abu_hasaniya: branchQuantities.abu_hasaniya
+      };
       product.inventoryQuantity = quantity;
       product.stock = quantity;
       await saveProduct(product);
@@ -5076,6 +5246,7 @@ function toggleProductSelection(productId, categoryId) {
           [`products/${productId}/inventoryEnabled`]: false,
           [`products/${productId}/inventoryQuantity`]: null,
           [`products/${productId}/stock`]: null,
+          [`products/${productId}/inventoryBranchQuantities`]: null,
           [`products/${productId}/inventoryUnitId`]: null,
           [`products/${productId}/unit`]: ''
         };
@@ -5173,6 +5344,11 @@ function toggleProductSelection(productId, categoryId) {
         product.inventoryEnabled = true;
         product.inventoryQuantity = null;
         product.stock = null;
+        product.inventoryBranchQuantities = {
+          main: null,
+          yarmouk: 0,
+          abu_hasaniya: 0
+        };
         product.inventoryUnitId = null;
         product.unit = '';
         await saveProduct(product);
@@ -5334,11 +5510,17 @@ function toggleProductSelection(productId, categoryId) {
     function openInventoryCategory(categoryId) {
       selectedInventoryCategoryId = categoryId;
       inventoryCategoryProductsSearchTerm = '';
+      inventoryCategoryBranchFilter = 'main';
       renderAccounting('inventoryCategoryDetails');
     }
 
     function setInventoryCategoryProductsSearchTerm(value) {
       inventoryCategoryProductsSearchTerm = value;
+      renderAccounting('inventoryCategoryDetails');
+    }
+
+    function setInventoryCategoryBranchFilter(value) {
+      inventoryCategoryBranchFilter = value;
       renderAccounting('inventoryCategoryDetails');
     }
 
@@ -5358,6 +5540,9 @@ function toggleProductSelection(productId, categoryId) {
         const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
         return searchText.includes((inventoryCategoryProductsSearchTerm || '').toLowerCase());
       });
+      const branchQuantityHeader = inventoryCategoryBranchFilter === 'all'
+        ? 'كل الفروع'
+        : getInventoryBranchName(inventoryCategoryBranchFilter || 'main');
 
       return `
         <div>
@@ -5370,7 +5555,12 @@ function toggleProductSelection(productId, categoryId) {
           </div>
 
           <div class="bg-white p-6 rounded-xl shadow-lg">
-            <input type="text" value="${inventoryCategoryProductsSearchTerm || ''}" oninput="setInventoryCategoryProductsSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              <input type="text" value="${inventoryCategoryProductsSearchTerm || ''}" oninput="setInventoryCategoryProductsSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <select onchange="setInventoryCategoryBranchFilter(this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                ${getInventoryBranchOptionsHtml(inventoryCategoryBranchFilter, true, true)}
+              </select>
+            </div>
             <div class="overflow-x-auto">
               <table>
                 <thead>
@@ -5378,7 +5568,7 @@ function toggleProductSelection(productId, categoryId) {
                     <th>اسم المنتج بالعربي</th>
                     <th>اسم المنتج بالإنجليزي</th>
                     <th>السعر</th>
-                    <th>الكمية</th>
+                    <th>الكمية (${branchQuantityHeader})</th>
                     <th>الوحدة</th>
                     <th>إزالة من التصنيف</th>
                   </tr>
@@ -5389,7 +5579,7 @@ function toggleProductSelection(productId, categoryId) {
                       <td>${product.nameAr || ''}</td>
                       <td>${product.nameEn || ''}</td>
                       <td>${(parseFloat(product.price) || 0).toFixed(3)} د.ك</td>
-                      <td>${getInventoryQuantityText(product)}</td>
+                      <td>${getInventoryQuantityByFilterText(product, inventoryCategoryBranchFilter)}</td>
                       <td>${getInventoryUnitName(product.inventoryUnitId) || '-'}</td>
                       <td><button onclick="removeProductFromInventoryCategory('${product.id}', '${category.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">إزالة</button></td>
                     </tr>
@@ -5513,6 +5703,7 @@ function toggleProductSelection(productId, categoryId) {
         invoiceNumber: '',
         items: []
       };
+      editingIssueVoucherId = '';
       issueProductSearchTerm = '';
       if (shouldRender) renderAccounting('issue');
     }
@@ -5523,8 +5714,31 @@ function toggleProductSelection(productId, categoryId) {
       renderAccounting('issue');
     }
 
+    function openEditIssueVoucher(issueId) {
+      const issue = allInventoryIssues.find(item => item.id === issueId);
+      if (!issue) {
+        showToast('سند الصرف غير موجود', true);
+        return;
+      }
+
+      currentIssueVoucherDraft = {
+        warehouseKeeper: issue.warehouseKeeper || '',
+        cashierId: issue.cashierId || '',
+        invoiceNumber: issue.invoiceNumber || '',
+        items: Array.isArray(issue.items) ? issue.items.map(item => ({
+          productId: item.productId,
+          quantity: parseFloat(item.quantity) || 0
+        })) : []
+      };
+      editingIssueVoucherId = issue.id;
+      issueProductSearchTerm = '';
+      isIssueVoucherModalOpen = true;
+      renderAccounting('issue');
+    }
+
     function closeIssueVoucherModal() {
       isIssueVoucherModalOpen = false;
+      editingIssueVoucherId = '';
       issueProductSearchTerm = '';
       renderAccounting('issue');
     }
@@ -5535,6 +5749,7 @@ function toggleProductSelection(productId, categoryId) {
     }
 
     function renderIssueVoucherModal() {
+      const isEditingIssue = Boolean(editingIssueVoucherId);
       const searchTerm = (issueProductSearchTerm || '').toLowerCase();
       const products = getTrackedInventoryProducts().filter(product => {
         const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
@@ -5545,7 +5760,7 @@ function toggleProductSelection(productId, categoryId) {
         <div class="issue-voucher-overlay" onclick="if(event.target === this) closeIssueVoucherModal()" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 20px;">
           <div class="modal-content p-6 w-full max-w-6xl max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
-              <h3 class="text-2xl font-bold text-blue-600">إضافة سند صرف</h3>
+              <h3 class="text-2xl font-bold text-blue-600">${isEditingIssue ? 'تعديل سند صرف' : 'إضافة سند صرف'}</h3>
               <button onclick="closeIssueVoucherModal()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
             </div>
 
@@ -5583,7 +5798,7 @@ function toggleProductSelection(productId, categoryId) {
                 <button onclick="showIssueQuantityModal('${product.id}')" class="border-2 border-gray-200 rounded-lg p-4 text-right hover:border-blue-500 hover:bg-blue-50 transition">
                   <div class="font-bold">${product.nameAr || ''}</div>
                   <div class="text-sm text-gray-500 mb-1">${product.nameEn || ''}</div>
-                  <div class="text-sm text-blue-700 font-bold">المتوفر: ${getInventoryQuantityText(product) || '0'} ${getInventoryUnitName(product.inventoryUnitId) || ''}</div>
+                  <div class="text-sm text-blue-700 font-bold">المتوفر في الفرع الرئيسي: ${getInventoryQuantityText(product, 'main') || '0'} ${getInventoryUnitName(product.inventoryUnitId) || ''}</div>
                 </button>
               `).join('')}
               ${products.length === 0 ? '<div class="text-gray-500 py-4">لا توجد نتائج بحث</div>' : ''}
@@ -5622,12 +5837,20 @@ function toggleProductSelection(productId, categoryId) {
             </div>
 
             <div class="flex gap-3">
-              <button onclick="submitIssueVoucher()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">صرف</button>
+              <button onclick="submitIssueVoucher()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">${isEditingIssue ? 'حفظ التعديل' : 'صرف'}</button>
               <button onclick="closeIssueVoucherModal()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إغلاق</button>
             </div>
           </div>
         </div>
       `;
+    }
+
+    function getEditingIssueOriginalItemQuantity(productId) {
+      if (!editingIssueVoucherId) return 0;
+      const issue = allInventoryIssues.find(item => item.id === editingIssueVoucherId);
+      if (!issue || !Array.isArray(issue.items)) return 0;
+      const item = issue.items.find(entry => entry.productId === productId);
+      return item ? (parseFloat(item.quantity) || 0) : 0;
     }
 
     function renderIssueSection() {
@@ -5650,6 +5873,7 @@ function toggleProductSelection(productId, categoryId) {
                     <th>الكاشير</th>
                     <th>رقم الفاتورة</th>
                     <th>عدد المنتجات</th>
+                    <th>إجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -5661,10 +5885,16 @@ function toggleProductSelection(productId, categoryId) {
                       <td>${issue.cashierName || '-'}</td>
                       <td>${issue.invoiceNumber || '-'}</td>
                       <td>${Array.isArray(issue.items) ? issue.items.length : 0}</td>
+                      <td>
+                        <div class="flex gap-2">
+                          <button onclick="openEditIssueVoucher('${issue.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                          <button onclick="confirmDeleteIssueVoucher('${issue.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                        </div>
+                      </td>
                     </tr>
                   `).join('') : `
                     <tr>
-                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد حركات صرف بعد</td>
+                      <td colspan="7" class="text-center text-gray-500 py-8">لا توجد حركات صرف بعد</td>
                     </tr>
                   `}
                 </tbody>
@@ -5821,7 +6051,7 @@ function toggleProductSelection(productId, categoryId) {
     function showIssueQuantityModal(productId) {
       const product = allProducts.find(item => item.id === productId);
       if (!product) return;
-      const available = parseInventoryQuantity(product);
+      const available = parseInventoryQuantity(product, 'main') + getEditingIssueOriginalItemQuantity(productId);
       const unitName = getInventoryUnitName(product.inventoryUnitId);
 
       const modal = document.createElement('div');
@@ -5879,7 +6109,7 @@ function toggleProductSelection(productId, categoryId) {
         return;
       }
 
-      const available = parseInventoryQuantity(product);
+      const available = parseInventoryQuantity(product, 'main') + getEditingIssueOriginalItemQuantity(productId);
       const existingItem = currentIssueVoucherDraft.items.find(item => item.productId === productId);
       const existingQuantity = existingItem ? parseFloat(existingItem.quantity) || 0 : 0;
       if (quantity + existingQuantity > available) {
@@ -5911,6 +6141,8 @@ function toggleProductSelection(productId, categoryId) {
       const cashierId = currentIssueVoucherDraft.cashierId;
       const invoiceNumber = normalizeDecimalInput(currentIssueVoucherDraft.invoiceNumber || '');
       const items = Array.isArray(currentIssueVoucherDraft.items) ? currentIssueVoucherDraft.items : [];
+      const isEditingIssue = Boolean(editingIssueVoucherId);
+      const existingIssue = isEditingIssue ? allInventoryIssues.find(item => item.id === editingIssueVoucherId) : null;
 
       if (!warehouseKeeper) {
         showToast('الرجاء إدخال اسم أمين المخزن', true);
@@ -5928,6 +6160,19 @@ function toggleProductSelection(productId, categoryId) {
         showToast('الرجاء إضافة منتج واحد على الأقل', true);
         return;
       }
+      if (isEditingIssue && !existingIssue) {
+        showToast('تعذر العثور على سند الصرف المطلوب تعديله', true);
+        return;
+      }
+
+      const oldItemsByProductId = {};
+      if (existingIssue && Array.isArray(existingIssue.items)) {
+        existingIssue.items.forEach(item => {
+          const productId = item.productId;
+          if (!productId) return;
+          oldItemsByProductId[productId] = (oldItemsByProductId[productId] || 0) + (parseFloat(item.quantity) || 0);
+        });
+      }
 
       for (const item of items) {
         const product = allProducts.find(p => p.id === item.productId);
@@ -5935,38 +6180,68 @@ function toggleProductSelection(productId, categoryId) {
           showToast('تم العثور على منتج غير صالح في السند', true);
           return;
         }
-        if ((parseFloat(item.quantity) || 0) > parseInventoryQuantity(product)) {
+        const requestedQuantity = parseFloat(item.quantity) || 0;
+        if (requestedQuantity <= 0) {
+          showToast('الرجاء إدخال كمية صحيحة لكل منتج', true);
+          return;
+        }
+        const availableMainQuantity = parseInventoryQuantity(product, 'main') + (oldItemsByProductId[item.productId] || 0);
+        if (requestedQuantity > availableMainQuantity) {
           showToast(`الكمية غير متوفرة للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
           return;
         }
       }
 
       try {
-        const issueId = generateId();
-        const voucherNumber = await generateInventoryIssueNumber();
+        const issueId = isEditingIssue ? editingIssueVoucherId : generateId();
+        const voucherNumber = isEditingIssue ? (existingIssue.voucherNumber || await generateInventoryIssueNumber()) : await generateInventoryIssueNumber();
         const cashier = allIssueCashiers.find(item => item.id === cashierId);
-        const timestamp = Date.now();
+        const timestamp = isEditingIssue ? (existingIssue.timestamp || Date.now()) : Date.now();
+        const issueItems = [];
+        const newItemsByProductId = {};
 
         const updates = {};
-        const issueItems = [];
-
         items.forEach(item => {
           const product = allProducts.find(p => p.id === item.productId);
-          const currentQuantity = parseInventoryQuantity(product);
-          const newQuantity = parseFloat((currentQuantity - (parseFloat(item.quantity) || 0)).toFixed(3));
+          const quantity = parseFloat(item.quantity) || 0;
+          if (!product) return;
 
-          updates[`products/${product.id}/inventoryQuantity`] = newQuantity;
-          updates[`products/${product.id}/stock`] = newQuantity;
+          newItemsByProductId[product.id] = (newItemsByProductId[product.id] || 0) + quantity;
 
           issueItems.push({
             productId: product.id,
             nameAr: product.nameAr || '',
             nameEn: product.nameEn || '',
-            quantity: parseFloat((parseFloat(item.quantity) || 0).toFixed(3)),
+            quantity: parseFloat(quantity.toFixed(3)),
             unitId: product.inventoryUnitId || null,
             unitName: getInventoryUnitName(product.inventoryUnitId) || ''
           });
         });
+
+        const productIds = new Set([
+          ...Object.keys(oldItemsByProductId),
+          ...Object.keys(newItemsByProductId)
+        ]);
+
+        for (const productId of productIds) {
+          const product = allProducts.find(p => p.id === productId);
+          if (!product) continue;
+
+          const currentMainQuantity = ensureInventoryBranchQuantities(product).main;
+          const oldQuantity = oldItemsByProductId[productId] || 0;
+          const newQuantity = newItemsByProductId[productId] || 0;
+          const mainQuantityAfterRevert = currentMainQuantity + oldQuantity;
+          const finalMainQuantity = parseFloat((mainQuantityAfterRevert - newQuantity).toFixed(3));
+
+          if (finalMainQuantity < -0.000001) {
+            showToast(`الكمية غير كافية للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
+        }
 
         updates[`inventoryIssues/${issueId}`] = {
           id: issueId,
@@ -5976,17 +6251,592 @@ function toggleProductSelection(productId, categoryId) {
           cashierName: cashier?.name || '',
           invoiceNumber,
           items: issueItems,
-          timestamp
+          timestamp,
+          ...(isEditingIssue ? { updatedAt: Date.now() } : {})
         };
 
         await db.ref().update(updates);
-        showToast(`تم الصرف بنجاح. رقم السند: ${voucherNumber}`);
+        showToast(isEditingIssue ? `تم تعديل سند الصرف رقم: ${voucherNumber}` : `تم الصرف بنجاح. رقم السند: ${voucherNumber}`);
         isIssueVoucherModalOpen = false;
         resetIssueVoucherDraft(false);
         renderAccounting('issue');
       } catch (error) {
         console.error('Error submitting issue voucher:', error);
         showToast('حدث خطأ أثناء تنفيذ الصرف', true);
+      }
+    }
+
+    function confirmDeleteIssueVoucher(issueId) {
+      const issue = allInventoryIssues.find(item => item.id === issueId);
+      if (!issue) {
+        showToast('سند الصرف غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف سند الصرف</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف السند رقم "${issue.voucherNumber || '-'}"؟ سيتم إرجاع الكميات للمخزون.</p>
+          <div class="flex gap-3">
+            <button onclick="deleteIssueVoucherConfirmed('${issueId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteIssueVoucherConfirmed(issueId) {
+      const issue = allInventoryIssues.find(item => item.id === issueId);
+      if (!issue) {
+        showToast('سند الصرف غير موجود', true);
+        return;
+      }
+
+      try {
+        const updates = {};
+        const issueItems = Array.isArray(issue.items) ? issue.items : [];
+
+        issueItems.forEach(item => {
+          const product = allProducts.find(p => p.id === item.productId);
+          if (!product) return;
+
+          const currentQuantities = ensureInventoryBranchQuantities(product);
+          const restoredMainQuantity = parseFloat((currentQuantities.main + (parseFloat(item.quantity) || 0)).toFixed(3));
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = restoredMainQuantity;
+          updates[`products/${product.id}/inventoryQuantity`] = restoredMainQuantity;
+          updates[`products/${product.id}/stock`] = restoredMainQuantity;
+        });
+
+        updates[`inventoryIssues/${issueId}`] = null;
+
+        await db.ref().update(updates);
+        document.querySelector('.modal-overlay')?.remove();
+        if (editingIssueVoucherId === issueId) {
+          isIssueVoucherModalOpen = false;
+          resetIssueVoucherDraft(false);
+        }
+        showToast('تم حذف سند الصرف وإرجاع الكميات');
+        renderAccounting('issue');
+      } catch (error) {
+        console.error('Error deleting issue voucher:', error);
+        showToast('حدث خطأ أثناء حذف سند الصرف', true);
+      }
+    }
+
+    // Transfer Section
+    function resetTransferVoucherDraft(shouldRender = true) {
+      currentTransferVoucherDraft = {
+        warehouseKeeper: '',
+        targetBranchId: '',
+        items: []
+      };
+      editingTransferVoucherId = '';
+      transferProductSearchTerm = '';
+      if (shouldRender) renderAccounting('transfer');
+    }
+
+    function openTransferVoucherModal() {
+      resetTransferVoucherDraft(false);
+      isTransferVoucherModalOpen = true;
+      renderAccounting('transfer');
+    }
+
+    function openEditTransferVoucher(transferId) {
+      const transfer = allInventoryTransfers.find(item => item.id === transferId);
+      if (!transfer) {
+        showToast('سند التحويل غير موجود', true);
+        return;
+      }
+
+      currentTransferVoucherDraft = {
+        warehouseKeeper: transfer.warehouseKeeper || '',
+        targetBranchId: transfer.targetBranchId || '',
+        items: Array.isArray(transfer.items) ? transfer.items.map(item => ({
+          productId: item.productId,
+          quantity: parseFloat(item.quantity) || 0
+        })) : []
+      };
+      editingTransferVoucherId = transfer.id;
+      transferProductSearchTerm = '';
+      isTransferVoucherModalOpen = true;
+      renderAccounting('transfer');
+    }
+
+    function closeTransferVoucherModal() {
+      isTransferVoucherModalOpen = false;
+      editingTransferVoucherId = '';
+      transferProductSearchTerm = '';
+      renderAccounting('transfer');
+    }
+
+    function setTransferProductSearchTerm(value) {
+      transferProductSearchTerm = value;
+      renderAccounting('transfer');
+    }
+
+    function renderTransferVoucherModal() {
+      const isEditingTransfer = Boolean(editingTransferVoucherId);
+      const searchTerm = (transferProductSearchTerm || '').toLowerCase();
+      const products = getTrackedInventoryProducts().filter(product => {
+        const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
+        return searchText.includes(searchTerm);
+      });
+
+      return `
+        <div class="transfer-voucher-overlay" onclick="if(event.target === this) closeTransferVoucherModal()" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 20px;">
+          <div class="modal-content p-6 w-full max-w-6xl max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-2xl font-bold text-blue-600">${isEditingTransfer ? 'تعديل سند تحويل' : 'تحويل جديد'}</h3>
+              <button onclick="closeTransferVoucherModal()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم أمين المخزن</label>
+                <input type="text" value="${currentTransferVoucherDraft.warehouseKeeper || ''}" oninput="currentTransferVoucherDraft.warehouseKeeper = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">الفرع المحوّل إليه (من الفرع الرئيسي)</label>
+                <select onchange="currentTransferVoucherDraft.targetBranchId = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <option value="">-- اختر الفرع --</option>
+                  ${getInventoryBranchOptionsHtml(currentTransferVoucherDraft.targetBranchId, false, false)}
+                </select>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">بحث عن منتج</label>
+              <div class="flex gap-2">
+                <input id="transferProductSearchField" type="text" value="${transferProductSearchTerm || ''}" oninput="setTransferProductSearchTerm(this.value)" placeholder="🔍 ابحث عن منتج لإضافته إلى سند التحويل" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <button onclick="setTransferProductSearchTerm(document.getElementById('transferProductSearchField').value)" class="bg-blue-600 text-white px-5 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-64 overflow-y-auto mb-6">
+              ${products.map(product => `
+                <button onclick="showTransferQuantityModal('${product.id}')" class="border-2 border-gray-200 rounded-lg p-4 text-right hover:border-blue-500 hover:bg-blue-50 transition">
+                  <div class="font-bold">${product.nameAr || ''}</div>
+                  <div class="text-sm text-gray-500 mb-1">${product.nameEn || ''}</div>
+                  <div class="text-sm text-blue-700 font-bold">المتوفر في الفرع الرئيسي: ${getInventoryQuantityText(product, 'main') || '0'} ${getInventoryUnitName(product.inventoryUnitId) || ''}</div>
+                </button>
+              `).join('')}
+              ${products.length === 0 ? '<div class="text-gray-500 py-4">لا توجد نتائج بحث</div>' : ''}
+            </div>
+
+            <div class="overflow-x-auto mb-4">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>الكمية المحوّلة</th>
+                    <th>الوحدة</th>
+                    <th>إزالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${currentTransferVoucherDraft.items.length > 0 ? currentTransferVoucherDraft.items.map(item => {
+                    const product = allProducts.find(p => p.id === item.productId);
+                    return `
+                      <tr>
+                        <td>${product?.nameAr || ''}</td>
+                        <td>${product?.nameEn || ''}</td>
+                        <td>${formatInventoryDecimal(item.quantity || 0)}</td>
+                        <td>${getInventoryUnitName(product?.inventoryUnitId) || '-'}</td>
+                        <td><button onclick="removeTransferProduct('${item.productId}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button></td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="5" class="text-center text-gray-500 py-6">لا توجد منتجات مضافة في سند التحويل</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="flex gap-3">
+              <button onclick="submitTransferVoucher()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">${isEditingTransfer ? 'حفظ التعديل' : 'تحويل'}</button>
+              <button onclick="closeTransferVoucherModal()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إغلاق</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function getEditingTransferOriginalItemQuantity(productId) {
+      if (!editingTransferVoucherId) return 0;
+      const transfer = allInventoryTransfers.find(item => item.id === editingTransferVoucherId);
+      if (!transfer || !Array.isArray(transfer.items)) return 0;
+      const item = transfer.items.find(entry => entry.productId === productId);
+      return item ? (parseFloat(item.quantity) || 0) : 0;
+    }
+
+    function renderTransferSection() {
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">تحويلات</h2>
+            <button onclick="openTransferVoucherModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ تحويل جديد</button>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h3 class="text-2xl font-bold text-blue-600 mb-4">حركات التحويل</h3>
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>رقم السند</th>
+                    <th>التاريخ</th>
+                    <th>أمين المخزن</th>
+                    <th>إلى فرع</th>
+                    <th>عدد المنتجات</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${allInventoryTransfers.length > 0 ? allInventoryTransfers.map(transfer => `
+                    <tr>
+                      <td>${transfer.voucherNumber || '-'}</td>
+                      <td>${transfer.timestamp ? `${formatDate(transfer.timestamp)} ${formatTime(transfer.timestamp)}` : '-'}</td>
+                      <td>${transfer.warehouseKeeper || '-'}</td>
+                      <td>${transfer.targetBranchName || '-'}</td>
+                      <td>${Array.isArray(transfer.items) ? transfer.items.length : 0}</td>
+                      <td>
+                        <div class="flex gap-2">
+                          <button onclick="openEditTransferVoucher('${transfer.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                          <button onclick="confirmDeleteTransferVoucher('${transfer.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد حركات تحويل بعد</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          ${isTransferVoucherModalOpen ? renderTransferVoucherModal() : ''}
+        </div>
+      `;
+    }
+
+    function showTransferQuantityModal(productId) {
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+      const available = parseInventoryQuantity(product, 'main') + getEditingTransferOriginalItemQuantity(productId);
+      const unitName = getInventoryUnitName(product.inventoryUnitId);
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-md">
+          <h3 class="text-xl font-bold text-blue-600 mb-2">${product.nameAr || ''}</h3>
+          <p class="text-gray-700 mb-4">الكمية المتوفرة في الفرع الرئيسي: <span class="font-bold">${formatInventoryDecimal(available)}</span> ${unitName}</p>
+
+          <input id="transferQuantityDisplay" type="text" value="" readonly class="w-full text-center text-3xl font-bold p-3 border-2 border-blue-300 rounded-lg mb-4">
+
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            ${[
+              ['٧', '7'], ['٨', '8'], ['٩', '9'],
+              ['٤', '4'], ['٥', '5'], ['٦', '6'],
+              ['١', '1'], ['٢', '2'], ['٣', '3'],
+              ['٠', '0'], ['٫', '.'], ['⌫', 'delete']
+            ].map(item => `
+              <button onclick="handleTransferKeypadPress('${item[1]}')" class="bg-gray-100 hover:bg-gray-200 rounded-lg py-3 text-2xl font-bold">${item[0]}</button>
+            `).join('')}
+          </div>
+
+          <div class="flex gap-3">
+            <button onclick="addProductToTransfer('${productId}')" class="flex-1 bg-green-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-green-700 transition">إضافة المنتج</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function handleTransferKeypadPress(value) {
+      const display = document.getElementById('transferQuantityDisplay');
+      if (!display) return;
+      if (value === 'delete') {
+        display.value = display.value.slice(0, -1);
+        return;
+      }
+      if (value === '.') {
+        if (!display.value.includes('.')) display.value += '.';
+        return;
+      }
+      display.value += value;
+    }
+
+    function addProductToTransfer(productId) {
+      const display = document.getElementById('transferQuantityDisplay');
+      const product = allProducts.find(item => item.id === productId);
+      if (!display || !product) return;
+
+      const normalized = normalizeDecimalInput(display.value);
+      const quantity = parseFloat(normalized);
+      if (isNaN(quantity) || quantity <= 0) {
+        showToast('الرجاء إدخال كمية صحيحة', true);
+        return;
+      }
+
+      const available = parseInventoryQuantity(product, 'main') + getEditingTransferOriginalItemQuantity(productId);
+      const existingItem = currentTransferVoucherDraft.items.find(item => item.productId === productId);
+      const existingQuantity = existingItem ? parseFloat(existingItem.quantity) || 0 : 0;
+      if (quantity + existingQuantity > available) {
+        showToast('الكمية المطلوبة أكبر من الكمية المتوفرة في الفرع الرئيسي', true);
+        return;
+      }
+
+      if (existingItem) {
+        existingItem.quantity = parseFloat((existingQuantity + quantity).toFixed(3));
+      } else {
+        currentTransferVoucherDraft.items.push({
+          productId,
+          quantity: parseFloat(quantity.toFixed(3))
+        });
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      transferProductSearchTerm = '';
+      renderAccounting('transfer');
+    }
+
+    function removeTransferProduct(productId) {
+      currentTransferVoucherDraft.items = currentTransferVoucherDraft.items.filter(item => item.productId !== productId);
+      renderAccounting('transfer');
+    }
+
+    async function submitTransferVoucher() {
+      const warehouseKeeper = (currentTransferVoucherDraft.warehouseKeeper || '').trim();
+      const targetBranchId = currentTransferVoucherDraft.targetBranchId;
+      const items = Array.isArray(currentTransferVoucherDraft.items) ? currentTransferVoucherDraft.items : [];
+      const isEditingTransfer = Boolean(editingTransferVoucherId);
+      const existingTransfer = isEditingTransfer ? allInventoryTransfers.find(item => item.id === editingTransferVoucherId) : null;
+      const oldTargetBranchId = existingTransfer?.targetBranchId || '';
+
+      if (!warehouseKeeper) {
+        showToast('الرجاء إدخال اسم أمين المخزن', true);
+        return;
+      }
+      if (!targetBranchId) {
+        showToast('الرجاء اختيار الفرع المحوّل إليه', true);
+        return;
+      }
+      if (targetBranchId === 'main') {
+        showToast('التحويل يكون من الفرع الرئيسي إلى الفروع الأخرى فقط', true);
+        return;
+      }
+      if (items.length === 0) {
+        showToast('الرجاء إضافة منتج واحد على الأقل', true);
+        return;
+      }
+      if (isEditingTransfer && !existingTransfer) {
+        showToast('تعذر العثور على سند التحويل المطلوب تعديله', true);
+        return;
+      }
+
+      const oldItemsByProductId = {};
+      if (existingTransfer && Array.isArray(existingTransfer.items)) {
+        existingTransfer.items.forEach(item => {
+          const productId = item.productId;
+          if (!productId) return;
+          oldItemsByProductId[productId] = (oldItemsByProductId[productId] || 0) + (parseFloat(item.quantity) || 0);
+        });
+      }
+
+      for (const item of items) {
+        const product = allProducts.find(p => p.id === item.productId);
+        if (!product) {
+          showToast('تم العثور على منتج غير صالح في السند', true);
+          return;
+        }
+        const requestedQuantity = parseFloat(item.quantity) || 0;
+        if (requestedQuantity <= 0) {
+          showToast('الرجاء إدخال كمية صحيحة لكل منتج', true);
+          return;
+        }
+
+        const availableMainQuantity = parseInventoryQuantity(product, 'main') + (oldItemsByProductId[item.productId] || 0);
+        if (requestedQuantity > availableMainQuantity) {
+          showToast(`الكمية غير متوفرة للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+          return;
+        }
+      }
+
+      try {
+        const transferId = isEditingTransfer ? editingTransferVoucherId : generateId();
+        const voucherNumber = isEditingTransfer ? (existingTransfer.voucherNumber || await generateInventoryTransferNumber()) : await generateInventoryTransferNumber();
+        const targetBranchName = getInventoryBranchName(targetBranchId);
+        const timestamp = isEditingTransfer ? (existingTransfer.timestamp || Date.now()) : Date.now();
+        const updates = {};
+        const transferItems = [];
+        const newItemsByProductId = {};
+
+        items.forEach(item => {
+          const product = allProducts.find(p => p.id === item.productId);
+          const quantity = parseFloat(item.quantity) || 0;
+          if (!product) return;
+          newItemsByProductId[product.id] = (newItemsByProductId[product.id] || 0) + quantity;
+
+          transferItems.push({
+            productId: product.id,
+            nameAr: product.nameAr || '',
+            nameEn: product.nameEn || '',
+            quantity: parseFloat(quantity.toFixed(3)),
+            unitId: product.inventoryUnitId || null,
+            unitName: getInventoryUnitName(product.inventoryUnitId) || ''
+          });
+        });
+
+        const productIds = new Set([
+          ...Object.keys(oldItemsByProductId),
+          ...Object.keys(newItemsByProductId)
+        ]);
+
+        for (const productId of productIds) {
+          const product = allProducts.find(p => p.id === productId);
+          if (!product) continue;
+
+          const quantities = ensureInventoryBranchQuantities(product);
+          const oldQuantity = oldItemsByProductId[productId] || 0;
+          const newQuantity = newItemsByProductId[productId] || 0;
+
+          const mainAfterRevert = quantities.main + oldQuantity;
+          if (newQuantity > mainAfterRevert + 0.000001) {
+            showToast(`الكمية غير متوفرة للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          const finalMainQuantity = parseFloat((mainAfterRevert - newQuantity).toFixed(3));
+          if (finalMainQuantity < -0.000001) {
+            showToast(`الكمية غير كافية للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
+
+          if (oldTargetBranchId) {
+            const oldTargetCurrentQuantity = quantities[oldTargetBranchId] || 0;
+            const oldTargetAfterRevert = parseFloat((oldTargetCurrentQuantity - oldQuantity).toFixed(3));
+            if (oldTargetAfterRevert < -0.000001) {
+              showToast(`تعذر تعديل السند بسبب نقص رصيد الفرع القديم للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+              return;
+            }
+
+            if (oldTargetBranchId === targetBranchId) {
+              const finalTargetQuantity = parseFloat((oldTargetAfterRevert + newQuantity).toFixed(3));
+              updates[`products/${product.id}/inventoryBranchQuantities/${targetBranchId}`] = Math.max(0, finalTargetQuantity);
+            } else {
+              updates[`products/${product.id}/inventoryBranchQuantities/${oldTargetBranchId}`] = Math.max(0, oldTargetAfterRevert);
+              const newTargetCurrentQuantity = quantities[targetBranchId] || 0;
+              const finalNewTargetQuantity = parseFloat((newTargetCurrentQuantity + newQuantity).toFixed(3));
+              updates[`products/${product.id}/inventoryBranchQuantities/${targetBranchId}`] = Math.max(0, finalNewTargetQuantity);
+            }
+          } else {
+            const newTargetCurrentQuantity = quantities[targetBranchId] || 0;
+            const finalNewTargetQuantity = parseFloat((newTargetCurrentQuantity + newQuantity).toFixed(3));
+            updates[`products/${product.id}/inventoryBranchQuantities/${targetBranchId}`] = Math.max(0, finalNewTargetQuantity);
+          }
+        }
+
+        updates[`inventoryTransfers/${transferId}`] = {
+          id: transferId,
+          voucherNumber,
+          warehouseKeeper,
+          targetBranchId,
+          targetBranchName,
+          items: transferItems,
+          timestamp,
+          ...(isEditingTransfer ? { updatedAt: Date.now() } : {})
+        };
+
+        await db.ref().update(updates);
+        showToast(isEditingTransfer ? `تم تعديل سند التحويل رقم: ${voucherNumber}` : `تم التحويل بنجاح. رقم السند: ${voucherNumber}`);
+        isTransferVoucherModalOpen = false;
+        resetTransferVoucherDraft(false);
+        renderAccounting('transfer');
+      } catch (error) {
+        console.error('Error submitting transfer voucher:', error);
+        showToast('حدث خطأ أثناء تنفيذ التحويل', true);
+      }
+    }
+
+    function confirmDeleteTransferVoucher(transferId) {
+      const transfer = allInventoryTransfers.find(item => item.id === transferId);
+      if (!transfer) {
+        showToast('سند التحويل غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف سند التحويل</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف السند رقم "${transfer.voucherNumber || '-'}"؟ سيتم التراجع عن التحويل وإرجاع الكميات.</p>
+          <div class="flex gap-3">
+            <button onclick="deleteTransferVoucherConfirmed('${transferId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteTransferVoucherConfirmed(transferId) {
+      const transfer = allInventoryTransfers.find(item => item.id === transferId);
+      if (!transfer) {
+        showToast('سند التحويل غير موجود', true);
+        return;
+      }
+
+      try {
+        const updates = {};
+        const targetBranchId = transfer.targetBranchId;
+        const transferItems = Array.isArray(transfer.items) ? transfer.items : [];
+
+        for (const item of transferItems) {
+          const product = allProducts.find(p => p.id === item.productId);
+          if (!product) continue;
+
+          const quantity = parseFloat(item.quantity) || 0;
+          const quantities = ensureInventoryBranchQuantities(product);
+          const targetCurrentQuantity = quantities[targetBranchId] || 0;
+          const restoredTargetQuantity = parseFloat((targetCurrentQuantity - quantity).toFixed(3));
+          if (restoredTargetQuantity < -0.000001) {
+            showToast(`تعذر حذف السند بسبب نقص رصيد الفرع للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          const restoredMainQuantity = parseFloat((quantities.main + quantity).toFixed(3));
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = restoredMainQuantity;
+          updates[`products/${product.id}/inventoryBranchQuantities/${targetBranchId}`] = Math.max(0, restoredTargetQuantity);
+          updates[`products/${product.id}/inventoryQuantity`] = restoredMainQuantity;
+          updates[`products/${product.id}/stock`] = restoredMainQuantity;
+        }
+
+        updates[`inventoryTransfers/${transferId}`] = null;
+        await db.ref().update(updates);
+        document.querySelector('.modal-overlay')?.remove();
+        if (editingTransferVoucherId === transferId) {
+          isTransferVoucherModalOpen = false;
+          resetTransferVoucherDraft(false);
+        }
+        showToast('تم حذف سند التحويل والتراجع عن الكميات');
+        renderAccounting('transfer');
+      } catch (error) {
+        console.error('Error deleting transfer voucher:', error);
+        showToast('حدث خطأ أثناء حذف سند التحويل', true);
       }
     }
 
@@ -6627,7 +7477,7 @@ function searchProducts() {
       code: product.id || 'N/A',
       unit: product.unit || 'حبة',
       sellPrice: product.price || 0,
-      quantity: product.stock || 0
+      quantity: parseInventoryQuantity(product, 'main')
     };
     
     return `
