@@ -244,8 +244,8 @@
     let inventoryProductSearchTerm = '';
     let inventoryCategorySearchTerm = '';
     let inventoryCategoryProductsSearchTerm = '';
-    let inventoryProductsBranchFilter = 'main';
-    let inventoryCategoryBranchFilter = 'main';
+    let inventoryProductsBranchFilter = 'all';
+    let inventoryCategoryBranchFilter = 'all';
     let issueProductSearchTerm = '';
     let transferProductSearchTerm = '';
     let selectedProductsForInventory = [];
@@ -4877,6 +4877,8 @@ function toggleProductSelection(productId, categoryId) {
 
     // Inventory Tracking Section
     function renderInventorySection() {
+      inventoryProductsBranchFilter = 'all';
+      inventoryCategoryBranchFilter = 'all';
       return `
         <div class="max-w-3xl mx-auto">
           <h2 class="text-3xl font-bold text-blue-600 mb-6">متابعة المخزون</h2>
@@ -4905,26 +4907,20 @@ function toggleProductSelection(productId, categoryId) {
     }
 
     function renderInventoryProductsQuantityCell(product) {
-      if (inventoryProductsBranchFilter === 'main') {
-        return `
-          <input
-            type="text"
-            value="${getInventoryQuantityText(product, 'main')}"
-            placeholder="أدخل الكمية"
-            oninput="this.value = normalizeDecimalInput(this.value)"
-            onblur="saveInventoryProductQuantity('${product.id}', this.value)"
-            class="w-32 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none"
-          >
-        `;
-      }
-
       if (inventoryProductsBranchFilter === 'all') {
         return getInventoryQuantityByFilterText(product, 'all');
       }
 
+      const branchId = inventoryProductsBranchFilter || 'main';
       return `
-        <div class="font-bold text-blue-700">${getInventoryQuantityText(product, inventoryProductsBranchFilter) || '0'}</div>
-        <div class="text-xs text-gray-500">عرض فقط</div>
+        <input
+          type="text"
+          value="${getInventoryQuantityText(product, branchId)}"
+          placeholder="أدخل الكمية"
+          oninput="this.value = normalizeDecimalInput(this.value)"
+          onblur="saveInventoryProductQuantity('${product.id}', this.value, '${branchId}')"
+          class="w-32 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none"
+        >
       `;
     }
 
@@ -4954,7 +4950,11 @@ function toggleProductSelection(productId, categoryId) {
                 ${getInventoryBranchOptionsHtml(inventoryProductsBranchFilter, true, true)}
               </select>
             </div>
-            <p class="text-xs text-gray-500 mb-4">أي كمية يتم إدخالها مباشرة هنا تُحفظ للفرع الرئيسي فقط.</p>
+            <p class="text-xs text-gray-500 mb-4">
+              ${inventoryProductsBranchFilter === 'all'
+                ? 'اختر فرعًا محددًا لتعديل الكميات.'
+                : `الكميات المعدلة هنا تُحفظ للفرع المحدد: ${getInventoryBranchName(inventoryProductsBranchFilter)}.`}
+            </p>
             <div class="overflow-x-auto">
               <table>
                 <thead>
@@ -5005,20 +5005,25 @@ function toggleProductSelection(productId, categoryId) {
       `;
     }
 
-    async function saveInventoryProductQuantity(productId, value) {
+    async function saveInventoryProductQuantity(productId, value, branchId = 'main') {
       const product = allProducts.find(item => item.id === productId);
       if (!product) return;
+
+      const allowedBranches = new Set(['main', 'yarmouk', 'abu_hasaniya']);
+      const targetBranchId = allowedBranches.has(branchId) ? branchId : 'main';
       const normalized = normalizeDecimalInput(value);
-      const quantity = normalized === '' ? null : parseFloat(normalized);
+      const quantity = normalized === '' ? (targetBranchId === 'main' ? null : 0) : parseFloat(normalized);
       if (quantity !== null && isNaN(quantity)) return;
       const branchQuantities = ensureInventoryBranchQuantities(product);
       product.inventoryBranchQuantities = {
-        main: quantity,
-        yarmouk: branchQuantities.yarmouk,
-        abu_hasaniya: branchQuantities.abu_hasaniya
+        main: targetBranchId === 'main' ? quantity : branchQuantities.main,
+        yarmouk: targetBranchId === 'yarmouk' ? quantity : branchQuantities.yarmouk,
+        abu_hasaniya: targetBranchId === 'abu_hasaniya' ? quantity : branchQuantities.abu_hasaniya
       };
-      product.inventoryQuantity = quantity;
-      product.stock = quantity;
+
+      const mainQuantityForLegacy = product.inventoryBranchQuantities.main;
+      product.inventoryQuantity = mainQuantityForLegacy;
+      product.stock = mainQuantityForLegacy;
       await saveProduct(product);
     }
 
@@ -5510,7 +5515,7 @@ function toggleProductSelection(productId, categoryId) {
     function openInventoryCategory(categoryId) {
       selectedInventoryCategoryId = categoryId;
       inventoryCategoryProductsSearchTerm = '';
-      inventoryCategoryBranchFilter = 'main';
+      inventoryCategoryBranchFilter = 'all';
       renderAccounting('inventoryCategoryDetails');
     }
 
