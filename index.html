@@ -271,7 +271,8 @@
     const INVENTORY_BRANCHES = [
       { id: 'main', name: 'الفرع الرئيسي' },
       { id: 'yarmouk', name: 'فرع اليرموك' },
-      { id: 'abu_hasaniya', name: 'فرع أبو الحصانية' }
+      { id: 'abu_hasaniya', name: 'فرع أبو الحصانية' },
+      { id: 'main_warehouse', name: 'المخزن الرئيسي' }
     ];
 
     // Helper Functions
@@ -577,10 +578,10 @@
     function parseInventoryQuantity(product, branchId = 'main') {
       if (!product) return 0;
       if (branchId === 'all') {
-        const mainValue = parseInventoryQuantity(product, 'main');
-        const yarmoukValue = parseInventoryQuantity(product, 'yarmouk');
-        const abuHasaniyaValue = parseInventoryQuantity(product, 'abu_hasaniya');
-        return parseFloat((mainValue + yarmoukValue + abuHasaniyaValue).toFixed(3));
+        const total = INVENTORY_BRANCHES.reduce((sum, branch) => {
+          return sum + parseInventoryQuantity(product, branch.id);
+        }, 0);
+        return parseFloat(total.toFixed(3));
       }
 
       let raw = null;
@@ -618,22 +619,22 @@
     }
 
     function ensureInventoryBranchQuantities(product) {
-      if (!product) return { main: 0, yarmouk: 0, abu_hasaniya: 0 };
-      return {
-        main: parseInventoryQuantity(product, 'main'),
-        yarmouk: parseInventoryQuantity(product, 'yarmouk'),
-        abu_hasaniya: parseInventoryQuantity(product, 'abu_hasaniya')
-      };
+      const quantities = {};
+      INVENTORY_BRANCHES.forEach(branch => {
+        quantities[branch.id] = parseInventoryQuantity(product, branch.id);
+      });
+      return quantities;
     }
 
     function getInventoryQuantityByFilterText(product, branchId = 'main') {
       if (branchId === 'all') {
         const quantities = ensureInventoryBranchQuantities(product);
+        const branchRows = INVENTORY_BRANCHES.map(branch => `
+            <div><span class="font-bold">${branch.name}:</span> ${formatInventoryDecimal(quantities[branch.id])}</div>
+        `).join('');
         return `
           <div class="text-xs leading-6">
-            <div><span class="font-bold">الرئيسي:</span> ${formatInventoryDecimal(quantities.main)}</div>
-            <div><span class="font-bold">اليرموك:</span> ${formatInventoryDecimal(quantities.yarmouk)}</div>
-            <div><span class="font-bold">أبو الحصانية:</span> ${formatInventoryDecimal(quantities.abu_hasaniya)}</div>
+            ${branchRows}
           </div>
         `;
       }
@@ -676,6 +677,9 @@
       } else if (branch === 'أبو الحصانية') {
         prefix = '000';
         paddingLength = 5; // Total 5 digits (e.g., 00025)
+      } else if (branch === 'المخزن الرئيسي') {
+        prefix = '0000';
+        paddingLength = 6; // Total 6 digits (e.g., 000025)
       } else {
         // Default format
         prefix = '0';
@@ -1434,7 +1438,7 @@ function showNumericKeypadForInvoice(index, inputField) {
               <button onclick="selectPaymentMethod('online')" id="onlineBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition">
                 💳 أونلاين
               </button>
-              <button onclick="selectPaymentMethod('knet')" id="knetBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-cyan-500 hover:text-white transition">
+              <button onclick="selectPaymentMethod('knet')" id="knetBtn" class="bg-cyan-100 text-cyan-800 px-6 py-3 rounded-lg font-bold hover:bg-cyan-200 transition">
                 💳 كي-نت
               </button>
             </div>
@@ -1481,7 +1485,7 @@ function showNumericKeypadForInvoice(index, inputField) {
       
       if (cashBtn) cashBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition';
       if (onlineBtn) onlineBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition';
-      if (knetBtn) knetBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-cyan-500 hover:text-white transition';
+      if (knetBtn) knetBtn.className = 'bg-cyan-100 text-cyan-800 px-6 py-3 rounded-lg font-bold hover:bg-cyan-200 transition';
 
       if (method === 'cash') {
         if (cashBtn) cashBtn.className = 'bg-green-600 text-white px-6 py-3 rounded-lg font-bold transition';
@@ -2392,6 +2396,7 @@ function renderAccountingContent(section) {
             <select id="filterBranch" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
               <option value="">الكل</option>
               <option value="الفرع الرئيسي">الفرع الرئيسي</option>
+              <option value="المخزن الرئيسي">المخزن الرئيسي</option>
               <option value="أبو الحصانية">أبو الحصانية</option>
               <option value="اليرموك">اليرموك</option>
             </select>
@@ -5024,17 +5029,17 @@ function toggleProductSelection(productId, categoryId) {
       const product = allProducts.find(item => item.id === productId);
       if (!product) return;
 
-      const allowedBranches = new Set(['main', 'yarmouk', 'abu_hasaniya']);
+      const allowedBranches = new Set(INVENTORY_BRANCHES.map(branch => branch.id));
       const targetBranchId = allowedBranches.has(branchId) ? branchId : 'main';
       const normalized = normalizeDecimalInput(value);
       const quantity = normalized === '' ? (targetBranchId === 'main' ? null : 0) : parseFloat(normalized);
       if (quantity !== null && isNaN(quantity)) return;
       const branchQuantities = ensureInventoryBranchQuantities(product);
-      product.inventoryBranchQuantities = {
-        main: targetBranchId === 'main' ? quantity : branchQuantities.main,
-        yarmouk: targetBranchId === 'yarmouk' ? quantity : branchQuantities.yarmouk,
-        abu_hasaniya: targetBranchId === 'abu_hasaniya' ? quantity : branchQuantities.abu_hasaniya
-      };
+      const nextBranchQuantities = {};
+      INVENTORY_BRANCHES.forEach(branch => {
+        nextBranchQuantities[branch.id] = branch.id === targetBranchId ? quantity : branchQuantities[branch.id];
+      });
+      product.inventoryBranchQuantities = nextBranchQuantities;
 
       const mainQuantityForLegacy = product.inventoryBranchQuantities.main;
       product.inventoryQuantity = mainQuantityForLegacy;
@@ -5364,11 +5369,11 @@ function toggleProductSelection(productId, categoryId) {
         product.inventoryEnabled = true;
         product.inventoryQuantity = null;
         product.stock = null;
-        product.inventoryBranchQuantities = {
-          main: null,
-          yarmouk: 0,
-          abu_hasaniya: 0
-        };
+        const branchQuantities = {};
+        INVENTORY_BRANCHES.forEach(branch => {
+          branchQuantities[branch.id] = branch.id === 'main' ? null : 0;
+        });
+        product.inventoryBranchQuantities = branchQuantities;
         product.inventoryUnitId = null;
         product.unit = '';
         await saveProduct(product);
@@ -6893,6 +6898,7 @@ function toggleProductSelection(productId, categoryId) {
                   <select id="currentDeviceBranch" class="flex-1 p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
                     <option value="">اختر الفرع</option>
                     <option value="الفرع الرئيسي" ${currentDeviceBranch === 'الفرع الرئيسي' ? 'selected' : ''}>الفرع الرئيسي</option>
+                    <option value="المخزن الرئيسي" ${currentDeviceBranch === 'المخزن الرئيسي' ? 'selected' : ''}>المخزن الرئيسي</option>
                     <option value="أبو الحصانية" ${currentDeviceBranch === 'أبو الحصانية' ? 'selected' : ''}>أبو الحصانية</option>
                     <option value="اليرموك" ${currentDeviceBranch === 'اليرموك' ? 'selected' : ''}>اليرموك</option>
                   </select>
