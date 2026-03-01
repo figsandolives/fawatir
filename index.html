@@ -240,16 +240,24 @@
     let allIssueCashiers = [];
     let allInventoryIssues = [];
     let allInventoryTransfers = [];
+    let allInventorySuppliers = [];
+    let allInventoryPurchases = [];
     let selectedInventoryCategoryId = '';
+    let selectedInventorySupplierId = '';
     let inventoryProductSearchTerm = '';
     let inventoryCategorySearchTerm = '';
     let inventoryCategoryProductsSearchTerm = '';
+    let supplierSearchTerm = '';
+    let supplierProductsSearchTerm = '';
     let inventoryProductsBranchFilter = 'all';
     let inventoryCategoryBranchFilter = 'all';
     let issueProductSearchTerm = '';
     let transferProductSearchTerm = '';
+    let purchaseProductSearchTerm = '';
     let selectedProductsForInventory = [];
     let selectedInventoryProductsForCategory = [];
+    let selectedSupplierProductsForAdd = [];
+    let selectedPurchaseProductsForAdd = [];
     let currentIssueVoucherDraft = {
       warehouseKeeper: '',
       cashierId: '',
@@ -262,9 +270,17 @@
       targetBranchId: '',
       items: []
     };
+    let currentPurchaseVoucherDraft = {
+      warehouseKeeper: '',
+      supplierId: '',
+      invoiceNumber: '',
+      items: []
+    };
     let editingTransferVoucherId = '';
+    let editingPurchaseVoucherId = '';
     let isIssueVoucherModalOpen = false;
     let isTransferVoucherModalOpen = false;
+    let isPurchaseVoucherModalOpen = false;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -763,6 +779,27 @@ function setupRealtimeListeners() {
     allInventoryTransfers.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     refreshUI();
   });
+
+  // 11. مراقبة الموردين
+  db.ref('inventorySuppliers').on('value', (snapshot) => {
+    allInventorySuppliers = snapshot.val()
+      ? Object.entries(snapshot.val()).map(([id, data]) => ({
+          id,
+          ...data,
+          productIds: Array.isArray(data.productIds)
+            ? data.productIds
+            : (data.productIds ? Object.values(data.productIds) : [])
+        }))
+      : [];
+    refreshUI();
+  });
+
+  // 12. مراقبة سندات الشراء
+  db.ref('inventoryPurchases').on('value', (snapshot) => {
+    allInventoryPurchases = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    allInventoryPurchases.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    refreshUI();
+  });
 }
 
 // 2. دالة تحديث واجهة المستخدم بدون ريفريش
@@ -771,7 +808,8 @@ function refreshUI() {
   if (
     document.querySelector('.modal-overlay') ||
     document.querySelector('.issue-voucher-overlay') ||
-    document.querySelector('.transfer-voucher-overlay')
+    document.querySelector('.transfer-voucher-overlay') ||
+    document.querySelector('.purchase-voucher-overlay')
   ) return;
 
   if (currentScreen === 'cashier') {
@@ -875,6 +913,23 @@ function refreshUI() {
       }
     }
 
+    async function saveInventorySupplier(supplier) {
+      try {
+        const id = supplier.id || generateId();
+        await db.ref(`inventorySuppliers/${id}`).set({
+          ...supplier,
+          id,
+          productIds: Array.isArray(supplier.productIds) ? supplier.productIds : []
+        });
+        await loadData();
+        return { success: true, id };
+      } catch (error) {
+        console.error('Error saving supplier:', error);
+        showToast('خطأ في حفظ المورد', true);
+        return { success: false, id: null };
+      }
+    }
+
     async function generateInventoryIssueNumber() {
       const counterRef = db.ref('inventoryIssueCounter');
       const snapshot = await counterRef.once('value');
@@ -889,6 +944,14 @@ function refreshUI() {
       const currentCounter = (snapshot.val() || 0) + 1;
       await counterRef.set(currentCounter);
       return `TRF-${String(currentCounter).padStart(6, '0')}`;
+    }
+
+    async function generateInventoryPurchaseNumber() {
+      const counterRef = db.ref('inventoryPurchaseCounter');
+      const snapshot = await counterRef.once('value');
+      const currentCounter = (snapshot.val() || 0) + 1;
+      await counterRef.set(currentCounter);
+      return `SHR-${String(currentCounter).padStart(6, '0')}`;
     }
 
     async function saveCustomer(customer) {
@@ -2280,6 +2343,11 @@ function renderAccounting(section) {
     editingTransferVoucherId = '';
     transferProductSearchTerm = '';
   }
+  if (section !== 'purchase') {
+    isPurchaseVoucherModalOpen = false;
+    editingPurchaseVoucherId = '';
+    purchaseProductSearchTerm = '';
+  }
   
   const app = document.getElementById('app');
   
@@ -2306,8 +2374,14 @@ function renderAccounting(section) {
           <div class="sidebar-item ${['inventory', 'inventoryProducts', 'inventoryCategories', 'inventoryCategoryDetails'].includes(section) ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('inventory')">
             📦 متابعة المخزون
           </div>
+          <div class="sidebar-item ${['suppliers', 'supplierDetails'].includes(section) ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('suppliers')">
+            🚚 الموردين
+          </div>
           <div class="sidebar-item ${section === 'issue' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('issue')">
             🧾 صرف
+          </div>
+          <div class="sidebar-item ${section === 'purchase' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('purchase')">
+            🛒 شراء
           </div>
           <div class="sidebar-item ${section === 'transfer' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('transfer')">
             🔁 تحويلات
@@ -2351,8 +2425,14 @@ function renderAccountingContent(section) {
       return renderInventoryCategoriesSection();
     case 'inventoryCategoryDetails':
       return renderInventoryCategoryDetailsSection();
+    case 'suppliers':
+      return renderSuppliersSection();
+    case 'supplierDetails':
+      return renderSupplierDetailsSection();
     case 'issue':
       return renderIssueSection();
+    case 'purchase':
+      return renderPurchaseSection();
     case 'transfer':
       return renderTransferSection();
     case 'devices': 
@@ -5718,6 +5798,831 @@ function toggleProductSelection(productId, categoryId) {
       if (!success) return;
       showToast('تمت إزالة المنتج من التصنيف');
       openInventoryCategory(categoryId);
+    }
+
+    // Suppliers Section
+    function getSupplierDisplayName(supplier) {
+      if (!supplier) return '-';
+      return `${supplier.nameAr || ''}${supplier.nameEn ? ` / ${supplier.nameEn}` : ''}`.trim();
+    }
+
+    function setSupplierSearchTerm(value) {
+      supplierSearchTerm = value;
+      renderAccounting('suppliers');
+    }
+
+    function renderSuppliersSection() {
+      const searchTerm = (supplierSearchTerm || '').toLowerCase();
+      const suppliers = allInventorySuppliers.filter(supplier => {
+        const searchText = `${supplier.nameAr || ''} ${supplier.nameEn || ''} ${supplier.phone || ''}`.toLowerCase();
+        return searchText.includes(searchTerm);
+      });
+
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">الموردين</h2>
+            <button onclick="showSupplierModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة مورد</button>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <input type="text" value="${supplierSearchTerm || ''}" oninput="setSupplierSearchTerm(this.value)" placeholder="🔍 بحث عن مورد..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المورد بالعربي</th>
+                    <th>اسم المورد بالإنجليزي</th>
+                    <th>رقم الهاتف</th>
+                    <th>تعديل</th>
+                    <th>حذف</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${suppliers.length > 0 ? suppliers.map(supplier => `
+                    <tr class="cursor-pointer" onclick="openInventorySupplier('${supplier.id}')">
+                      <td>${supplier.nameAr || ''}</td>
+                      <td>${supplier.nameEn || ''}</td>
+                      <td>${supplier.phone || ''}</td>
+                      <td>
+                        <button onclick="event.stopPropagation(); showSupplierModal('${supplier.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                      </td>
+                      <td>
+                        <button onclick="event.stopPropagation(); confirmDeleteSupplier('${supplier.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                      </td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="5" class="text-center text-gray-500 py-8">لا يوجد موردين بعد</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showSupplierModal(supplierId = '') {
+      const supplier = supplierId ? allInventorySuppliers.find(item => item.id === supplierId) : null;
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-lg">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">${supplier ? 'تعديل مورد' : 'إضافة مورد'}</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم المورد بالعربي</label>
+              <input type="text" id="supplierNameAr" value="${supplier?.nameAr || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">اسم المورد بالإنجليزي</label>
+              <input type="text" id="supplierNameEn" value="${supplier?.nameEn || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
+              <input type="text" id="supplierPhone" value="${supplier?.phone || ''}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="saveSupplierFromModal('${supplierId}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">${supplier ? 'حفظ' : 'إضافة'}</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function saveSupplierFromModal(supplierId = '') {
+      const nameAr = (document.getElementById('supplierNameAr')?.value || '').trim();
+      const nameEn = (document.getElementById('supplierNameEn')?.value || '').trim();
+      const phone = (document.getElementById('supplierPhone')?.value || '').trim();
+
+      if (!nameAr || !nameEn || !phone) {
+        showToast('الرجاء إدخال الاسم بالعربي والإنجليزي ورقم الهاتف', true);
+        return;
+      }
+
+      const existing = supplierId ? allInventorySuppliers.find(item => item.id === supplierId) : null;
+      const result = await saveInventorySupplier({
+        id: supplierId || undefined,
+        nameAr,
+        nameEn,
+        phone,
+        productIds: existing?.productIds || []
+      });
+      if (!result.success) return;
+
+      document.querySelector('.modal-overlay')?.remove();
+      showToast(supplierId ? 'تم تعديل المورد بنجاح' : 'تمت إضافة المورد بنجاح');
+      renderAccounting('suppliers');
+    }
+
+    function confirmDeleteSupplier(supplierId) {
+      const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+      if (!supplier) {
+        showToast('المورد غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف المورد</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف المورد "${supplier.nameAr || ''}"؟</p>
+          <div class="flex gap-3">
+            <button onclick="deleteSupplierConfirmed('${supplierId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteSupplierConfirmed(supplierId) {
+      try {
+        await db.ref(`inventorySuppliers/${supplierId}`).remove();
+        await loadData();
+        if (selectedInventorySupplierId === supplierId) {
+          selectedInventorySupplierId = '';
+        }
+        if (currentPurchaseVoucherDraft.supplierId === supplierId) {
+          currentPurchaseVoucherDraft.supplierId = '';
+        }
+        document.querySelector('.modal-overlay')?.remove();
+        showToast('تم حذف المورد');
+        renderAccounting('suppliers');
+      } catch (error) {
+        console.error('Error deleting supplier:', error);
+        showToast('خطأ في حذف المورد', true);
+      }
+    }
+
+    function openInventorySupplier(supplierId) {
+      selectedInventorySupplierId = supplierId;
+      supplierProductsSearchTerm = '';
+      renderAccounting('supplierDetails');
+    }
+
+    function setSupplierProductsSearchTerm(value) {
+      supplierProductsSearchTerm = value;
+      renderAccounting('supplierDetails');
+    }
+
+    function renderSupplierDetailsSection() {
+      const supplier = allInventorySuppliers.find(item => item.id === selectedInventorySupplierId);
+      if (!supplier) {
+        return `
+          <div class="text-center py-10">
+            <p class="text-gray-600 mb-4">المورد غير موجود</p>
+            <button onclick="renderAccounting('suppliers')" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">رجوع</button>
+          </div>
+        `;
+      }
+
+      const supplierProductIds = new Set(Array.isArray(supplier.productIds) ? supplier.productIds : []);
+      const products = getTrackedInventoryProducts().filter(product => supplierProductIds.has(product.id)).filter(product => {
+        const searchText = `${product.nameAr || ''} ${product.nameEn || ''}`.toLowerCase();
+        return searchText.includes((supplierProductsSearchTerm || '').toLowerCase());
+      });
+
+      return `
+        <div>
+          <div class="flex flex-wrap gap-3 justify-between items-center mb-6">
+            <div class="flex gap-3">
+              <button onclick="renderAccounting('suppliers')" class="bg-gray-200 text-gray-800 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+              <button onclick="showAddProductsToSupplierModal('${supplier.id}')" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ إضافة منتجات</button>
+            </div>
+            <h2 class="text-3xl font-bold text-blue-600">${supplier.nameAr || ''}</h2>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div><span class="font-bold">الاسم بالعربي:</span> ${supplier.nameAr || ''}</div>
+              <div><span class="font-bold">الاسم بالإنجليزي:</span> ${supplier.nameEn || ''}</div>
+              <div><span class="font-bold">الهاتف:</span> ${supplier.phone || ''}</div>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <input type="text" value="${supplierProductsSearchTerm || ''}" oninput="setSupplierProductsSearchTerm(this.value)" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>السعر</th>
+                    <th>الكمية (كل الفروع)</th>
+                    <th>الوحدة</th>
+                    <th>إزالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${products.length > 0 ? products.map(product => `
+                    <tr>
+                      <td>${product.nameAr || ''}</td>
+                      <td>${product.nameEn || ''}</td>
+                      <td>${(parseFloat(product.price) || 0).toFixed(3)} د.ك</td>
+                      <td>${getInventoryQuantityByFilterText(product, 'all')}</td>
+                      <td>${getInventoryUnitName(product.inventoryUnitId) || '-'}</td>
+                      <td><button onclick="removeProductFromSupplier('${product.id}', '${supplier.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">إزالة</button></td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد منتجات مرتبطة بهذا المورد</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showAddProductsToSupplierModal(supplierId) {
+      selectedSupplierProductsForAdd = [];
+      const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+      if (!supplier) return;
+      const selectedSet = new Set(Array.isArray(supplier.productIds) ? supplier.productIds : []);
+      const availableProducts = getTrackedInventoryProducts().filter(product => !selectedSet.has(product.id));
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-4xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">إضافة منتجات للمورد</h2>
+          <input type="text" id="supplierProductsSearch" oninput="filterSupplierProductsForAdd()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+          <div id="supplierProductsCountBadge" class="bg-blue-50 p-3 rounded-lg mb-4 hidden">
+            <span id="supplierProductsCount" class="font-bold text-blue-700">0</span> منتج محدد
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+            ${availableProducts.map(product => `
+              <div class="product-card add-supplier-product-card border-2" data-product-id="${product.id}" data-search="${product.nameAr || ''} ${product.nameEn || ''}" onclick="toggleSupplierProductSelection('${product.id}')">
+                <div class="text-3xl mb-2">📦</div>
+                <div class="font-bold mb-1">${product.nameAr || ''}</div>
+                <div class="text-blue-600 font-bold">${(parseFloat(product.price) || 0).toFixed(3)} د.ك</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button id="saveSupplierProductsBtn" onclick="addSelectedProductsToSupplier('${supplierId}')" disabled class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">إضافة المنتجات المحددة</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function filterSupplierProductsForAdd() {
+      const searchTerm = (document.getElementById('supplierProductsSearch')?.value || '').toLowerCase();
+      document.querySelectorAll('.add-supplier-product-card').forEach(card => {
+        const data = (card.getAttribute('data-search') || '').toLowerCase();
+        card.style.display = data.includes(searchTerm) ? '' : 'none';
+      });
+    }
+
+    function toggleSupplierProductSelection(productId) {
+      const card = document.querySelector(`.add-supplier-product-card[data-product-id="${productId}"]`);
+      if (!card) return;
+
+      if (selectedSupplierProductsForAdd.includes(productId)) {
+        selectedSupplierProductsForAdd = selectedSupplierProductsForAdd.filter(id => id !== productId);
+        card.style.borderColor = '#e5e7eb';
+        card.style.backgroundColor = 'white';
+      } else {
+        selectedSupplierProductsForAdd.push(productId);
+        card.style.borderColor = '#3b82f6';
+        card.style.backgroundColor = '#dbeafe';
+      }
+
+      const countBadge = document.getElementById('supplierProductsCountBadge');
+      const countValue = document.getElementById('supplierProductsCount');
+      const saveBtn = document.getElementById('saveSupplierProductsBtn');
+      if (countValue) countValue.textContent = String(selectedSupplierProductsForAdd.length);
+      if (saveBtn) saveBtn.disabled = selectedSupplierProductsForAdd.length === 0;
+      if (countBadge) {
+        if (selectedSupplierProductsForAdd.length > 0) countBadge.classList.remove('hidden');
+        else countBadge.classList.add('hidden');
+      }
+    }
+
+    async function addSelectedProductsToSupplier(supplierId) {
+      if (selectedSupplierProductsForAdd.length === 0) {
+        showToast('الرجاء اختيار منتج واحد على الأقل', true);
+        return;
+      }
+
+      const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+      if (!supplier) return;
+      const existing = new Set(Array.isArray(supplier.productIds) ? supplier.productIds : []);
+      selectedSupplierProductsForAdd.forEach(id => existing.add(id));
+      supplier.productIds = Array.from(existing);
+
+      const result = await saveInventorySupplier(supplier);
+      if (!result.success) return;
+      document.querySelector('.modal-overlay')?.remove();
+      showToast('تمت إضافة المنتجات إلى المورد');
+      openInventorySupplier(supplierId);
+    }
+
+    async function removeProductFromSupplier(productId, supplierId) {
+      const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+      if (!supplier) return;
+      const currentIds = Array.isArray(supplier.productIds) ? supplier.productIds : [];
+      supplier.productIds = currentIds.filter(id => id !== productId);
+
+      const result = await saveInventorySupplier(supplier);
+      if (!result.success) return;
+      showToast('تمت إزالة المنتج من المورد');
+      openInventorySupplier(supplierId);
+    }
+
+    // Purchase Section
+    function resetPurchaseVoucherDraft(shouldRender = true) {
+      currentPurchaseVoucherDraft = {
+        warehouseKeeper: '',
+        supplierId: '',
+        invoiceNumber: '',
+        items: []
+      };
+      editingPurchaseVoucherId = '';
+      purchaseProductSearchTerm = '';
+      if (shouldRender) renderAccounting('purchase');
+    }
+
+    function openPurchaseVoucherModal() {
+      resetPurchaseVoucherDraft(false);
+      isPurchaseVoucherModalOpen = true;
+      renderAccounting('purchase');
+    }
+
+    function openEditPurchaseVoucher(purchaseId) {
+      const purchase = allInventoryPurchases.find(item => item.id === purchaseId);
+      if (!purchase) {
+        showToast('سند الشراء غير موجود', true);
+        return;
+      }
+
+      currentPurchaseVoucherDraft = {
+        warehouseKeeper: purchase.warehouseKeeper || '',
+        supplierId: purchase.supplierId || '',
+        invoiceNumber: purchase.invoiceNumber || '',
+        items: Array.isArray(purchase.items) ? purchase.items.map(item => ({
+          productId: item.productId,
+          quantity: formatInventoryDecimal(parseFloat(item.quantity) || 0)
+        })) : []
+      };
+      editingPurchaseVoucherId = purchase.id;
+      purchaseProductSearchTerm = '';
+      isPurchaseVoucherModalOpen = true;
+      renderAccounting('purchase');
+    }
+
+    function closePurchaseVoucherModal() {
+      isPurchaseVoucherModalOpen = false;
+      editingPurchaseVoucherId = '';
+      purchaseProductSearchTerm = '';
+      renderAccounting('purchase');
+    }
+
+    function getPurchaseSupplierCandidateProducts() {
+      const selectedSupplier = allInventorySuppliers.find(item => item.id === currentPurchaseVoucherDraft.supplierId);
+      const trackedProducts = getTrackedInventoryProducts();
+      if (!selectedSupplier) return trackedProducts;
+
+      const linkedIds = new Set(Array.isArray(selectedSupplier.productIds) ? selectedSupplier.productIds : []);
+      if (linkedIds.size === 0) return trackedProducts;
+      return trackedProducts.filter(product => linkedIds.has(product.id));
+    }
+
+    function showPurchaseProductsSelectionModal() {
+      if (!currentPurchaseVoucherDraft.supplierId) {
+        showToast('الرجاء اختيار المورد أولاً', true);
+        return;
+      }
+
+      selectedPurchaseProductsForAdd = [];
+      const existingIds = new Set((currentPurchaseVoucherDraft.items || []).map(item => item.productId));
+      const availableProducts = getPurchaseSupplierCandidateProducts().filter(product => !existingIds.has(product.id));
+
+      const modal = document.createElement('div');
+      modal.id = 'purchaseProductsPickerOverlay';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-4xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">اختيار منتجات الشراء</h2>
+          <input type="text" id="purchaseProductsSearch" oninput="filterPurchaseProductsForAdd()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+          <div id="purchaseProductsCountBadge" class="bg-blue-50 p-3 rounded-lg mb-4 hidden">
+            <span id="purchaseProductsCount" class="font-bold text-blue-700">0</span> منتج محدد
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+            ${availableProducts.map(product => `
+              <div class="product-card add-purchase-product-card border-2" data-product-id="${product.id}" data-search="${product.nameAr || ''} ${product.nameEn || ''}" onclick="togglePurchaseProductSelection('${product.id}')">
+                <div class="text-3xl mb-2">📦</div>
+                <div class="font-bold mb-1">${product.nameAr || ''}</div>
+                <div class="text-blue-600 font-bold">${(parseFloat(product.price) || 0).toFixed(3)} د.ك</div>
+              </div>
+            `).join('')}
+            ${availableProducts.length === 0 ? '<div class="text-gray-500 py-4">لا توجد منتجات متاحة للإضافة</div>' : ''}
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button id="savePurchaseProductsBtn" onclick="addSelectedProductsToPurchaseDraft()" disabled class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">إضافة المنتجات المحددة</button>
+            <button onclick="document.getElementById('purchaseProductsPickerOverlay')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function filterPurchaseProductsForAdd() {
+      const searchTerm = (document.getElementById('purchaseProductsSearch')?.value || '').toLowerCase();
+      document.querySelectorAll('.add-purchase-product-card').forEach(card => {
+        const data = (card.getAttribute('data-search') || '').toLowerCase();
+        card.style.display = data.includes(searchTerm) ? '' : 'none';
+      });
+    }
+
+    function togglePurchaseProductSelection(productId) {
+      const card = document.querySelector(`.add-purchase-product-card[data-product-id="${productId}"]`);
+      if (!card) return;
+
+      if (selectedPurchaseProductsForAdd.includes(productId)) {
+        selectedPurchaseProductsForAdd = selectedPurchaseProductsForAdd.filter(id => id !== productId);
+        card.style.borderColor = '#e5e7eb';
+        card.style.backgroundColor = 'white';
+      } else {
+        selectedPurchaseProductsForAdd.push(productId);
+        card.style.borderColor = '#3b82f6';
+        card.style.backgroundColor = '#dbeafe';
+      }
+
+      const countBadge = document.getElementById('purchaseProductsCountBadge');
+      const countValue = document.getElementById('purchaseProductsCount');
+      const saveBtn = document.getElementById('savePurchaseProductsBtn');
+      if (countValue) countValue.textContent = String(selectedPurchaseProductsForAdd.length);
+      if (saveBtn) saveBtn.disabled = selectedPurchaseProductsForAdd.length === 0;
+      if (countBadge) {
+        if (selectedPurchaseProductsForAdd.length > 0) countBadge.classList.remove('hidden');
+        else countBadge.classList.add('hidden');
+      }
+    }
+
+    function addSelectedProductsToPurchaseDraft() {
+      if (selectedPurchaseProductsForAdd.length === 0) {
+        showToast('الرجاء اختيار منتج واحد على الأقل', true);
+        return;
+      }
+
+      const existing = new Set((currentPurchaseVoucherDraft.items || []).map(item => item.productId));
+      selectedPurchaseProductsForAdd.forEach(productId => {
+        if (!existing.has(productId)) {
+          currentPurchaseVoucherDraft.items.push({
+            productId,
+            quantity: '1'
+          });
+        }
+      });
+
+      document.getElementById('purchaseProductsPickerOverlay')?.remove();
+      renderAccounting('purchase');
+    }
+
+    function removePurchaseProduct(productId) {
+      currentPurchaseVoucherDraft.items = currentPurchaseVoucherDraft.items.filter(item => item.productId !== productId);
+      renderAccounting('purchase');
+    }
+
+    function setPurchaseItemQuantity(productId, value) {
+      const item = currentPurchaseVoucherDraft.items.find(entry => entry.productId === productId);
+      if (!item) return;
+      item.quantity = normalizeDecimalInput(value);
+    }
+
+    function renderPurchaseVoucherModal() {
+      const isEditingPurchase = Boolean(editingPurchaseVoucherId);
+
+      return `
+        <div class="purchase-voucher-overlay" onclick="if(event.target === this) closePurchaseVoucherModal()" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 20px;">
+          <div class="modal-content p-6 w-full max-w-6xl max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-2xl font-bold text-blue-600">${isEditingPurchase ? 'تعديل سند شراء' : 'سند شراء جديد'}</h3>
+              <button onclick="closePurchaseVoucherModal()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم أمين المخزن</label>
+                <input type="text" value="${currentPurchaseVoucherDraft.warehouseKeeper || ''}" oninput="currentPurchaseVoucherDraft.warehouseKeeper = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم المورد</label>
+                <select onchange="currentPurchaseVoucherDraft.supplierId = this.value; renderAccounting('purchase')" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <option value="">-- اختر المورد --</option>
+                  ${allInventorySuppliers.map(supplier => `
+                    <option value="${supplier.id}" ${currentPurchaseVoucherDraft.supplierId === supplier.id ? 'selected' : ''}>${getSupplierDisplayName(supplier)}</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">رقم فاتورة الشراء</label>
+                <input type="text" value="${currentPurchaseVoucherDraft.invoiceNumber || ''}" oninput="this.value = normalizeDecimalInput(this.value); currentPurchaseVoucherDraft.invoiceNumber = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div class="text-sm text-gray-600">
+                ${currentPurchaseVoucherDraft.supplierId ? 'اختر المنتجات بنفس طريقة التصنيفات ثم أدخل الكمية لكل منتج.' : 'اختر المورد أولاً ثم أضف المنتجات.'}
+              </div>
+              <button onclick="showPurchaseProductsSelectionModal()" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 transition">➕ اختيار منتجات</button>
+            </div>
+
+            <div class="overflow-x-auto mb-4">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اسم المنتج بالعربي</th>
+                    <th>اسم المنتج بالإنجليزي</th>
+                    <th>الكمية المشتراة</th>
+                    <th>الوحدة</th>
+                    <th>إزالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${currentPurchaseVoucherDraft.items.length > 0 ? currentPurchaseVoucherDraft.items.map(item => {
+                    const product = allProducts.find(p => p.id === item.productId);
+                    return `
+                      <tr>
+                        <td>${product?.nameAr || ''}</td>
+                        <td>${product?.nameEn || ''}</td>
+                        <td>
+                          <input type="text" value="${item.quantity || ''}" oninput="this.value = normalizeDecimalInput(this.value); setPurchaseItemQuantity('${item.productId}', this.value)" class="w-28 p-2 border-2 border-gray-300 rounded-lg text-center focus:border-blue-600 focus:outline-none">
+                        </td>
+                        <td>${getInventoryUnitName(product?.inventoryUnitId) || '-'}</td>
+                        <td><button onclick="removePurchaseProduct('${item.productId}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button></td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="5" class="text-center text-gray-500 py-6">لا توجد منتجات مضافة في سند الشراء</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="flex gap-3">
+              <button onclick="submitPurchaseVoucher()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">${isEditingPurchase ? 'حفظ التعديل' : 'شراء'}</button>
+              <button onclick="closePurchaseVoucherModal()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إغلاق</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPurchaseSection() {
+      return `
+        <div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">شراء</h2>
+            <button onclick="openPurchaseVoucherModal()" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">➕ شراء</button>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h3 class="text-2xl font-bold text-blue-600 mb-4">سندات الشراء</h3>
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>رقم السند</th>
+                    <th>التاريخ</th>
+                    <th>أمين المخزن</th>
+                    <th>المورد</th>
+                    <th>رقم فاتورة الشراء</th>
+                    <th>عدد المنتجات</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${allInventoryPurchases.length > 0 ? allInventoryPurchases.map(purchase => `
+                    <tr>
+                      <td>${purchase.voucherNumber || '-'}</td>
+                      <td>${purchase.timestamp ? `${formatDate(purchase.timestamp)} ${formatTime(purchase.timestamp)}` : '-'}</td>
+                      <td>${purchase.warehouseKeeper || '-'}</td>
+                      <td>${purchase.supplierNameAr || purchase.supplierNameEn || '-'}</td>
+                      <td>${purchase.invoiceNumber || '-'}</td>
+                      <td>${Array.isArray(purchase.items) ? purchase.items.length : 0}</td>
+                      <td>
+                        <div class="flex gap-2">
+                          <button onclick="openEditPurchaseVoucher('${purchase.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
+                          <button onclick="confirmDeletePurchaseVoucher('${purchase.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="7" class="text-center text-gray-500 py-8">لا توجد سندات شراء بعد</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          ${isPurchaseVoucherModalOpen ? renderPurchaseVoucherModal() : ''}
+        </div>
+      `;
+    }
+
+    async function submitPurchaseVoucher() {
+      const warehouseKeeper = (currentPurchaseVoucherDraft.warehouseKeeper || '').trim();
+      const supplierId = currentPurchaseVoucherDraft.supplierId;
+      const invoiceNumber = normalizeDecimalInput(currentPurchaseVoucherDraft.invoiceNumber || '');
+      const items = Array.isArray(currentPurchaseVoucherDraft.items) ? currentPurchaseVoucherDraft.items : [];
+      const isEditingPurchase = Boolean(editingPurchaseVoucherId);
+      const existingPurchase = isEditingPurchase ? allInventoryPurchases.find(item => item.id === editingPurchaseVoucherId) : null;
+      const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+
+      if (!warehouseKeeper) {
+        showToast('الرجاء إدخال اسم أمين المخزن', true);
+        return;
+      }
+      if (!supplierId || !supplier) {
+        showToast('الرجاء اختيار المورد', true);
+        return;
+      }
+      if (!invoiceNumber) {
+        showToast('الرجاء إدخال رقم فاتورة الشراء', true);
+        return;
+      }
+      if (items.length === 0) {
+        showToast('الرجاء إضافة منتج واحد على الأقل', true);
+        return;
+      }
+      if (isEditingPurchase && !existingPurchase) {
+        showToast('تعذر العثور على سند الشراء المطلوب تعديله', true);
+        return;
+      }
+
+      const oldItemsByProductId = {};
+      if (existingPurchase && Array.isArray(existingPurchase.items)) {
+        existingPurchase.items.forEach(item => {
+          if (!item.productId) return;
+          oldItemsByProductId[item.productId] = (oldItemsByProductId[item.productId] || 0) + (parseFloat(item.quantity) || 0);
+        });
+      }
+
+      const newItemsByProductId = {};
+      const purchaseItems = [];
+      for (const item of items) {
+        const product = allProducts.find(p => p.id === item.productId);
+        if (!product) {
+          showToast('تم العثور على منتج غير صالح في السند', true);
+          return;
+        }
+        const quantity = parseFloat(normalizeDecimalInput(item.quantity));
+        if (isNaN(quantity) || quantity <= 0) {
+          showToast(`الرجاء إدخال كمية صحيحة للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
+          return;
+        }
+        newItemsByProductId[product.id] = (newItemsByProductId[product.id] || 0) + quantity;
+      }
+
+      try {
+        const updates = {};
+        const productIds = new Set([
+          ...Object.keys(oldItemsByProductId),
+          ...Object.keys(newItemsByProductId)
+        ]);
+
+        for (const productId of productIds) {
+          const product = allProducts.find(p => p.id === productId);
+          if (!product) continue;
+
+          const quantities = ensureInventoryBranchQuantities(product);
+          const oldQuantity = oldItemsByProductId[productId] || 0;
+          const newQuantity = newItemsByProductId[productId] || 0;
+
+          const mainAfterRevert = parseFloat((quantities.main - oldQuantity).toFixed(3));
+          if (mainAfterRevert < -0.000001) {
+            showToast(`تعذر تعديل السند لأن مخزون المنتج أصبح أقل من الكمية القديمة: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          const finalMainQuantity = parseFloat((mainAfterRevert + newQuantity).toFixed(3));
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
+        }
+
+        for (const [productId, quantity] of Object.entries(newItemsByProductId)) {
+          const product = allProducts.find(p => p.id === productId);
+          if (!product) continue;
+          purchaseItems.push({
+            productId,
+            nameAr: product.nameAr || '',
+            nameEn: product.nameEn || '',
+            quantity: parseFloat(quantity.toFixed(3)),
+            unitId: product.inventoryUnitId || null,
+            unitName: getInventoryUnitName(product.inventoryUnitId) || ''
+          });
+        }
+
+        const purchaseId = isEditingPurchase ? editingPurchaseVoucherId : generateId();
+        const voucherNumber = isEditingPurchase
+          ? (existingPurchase.voucherNumber || await generateInventoryPurchaseNumber())
+          : await generateInventoryPurchaseNumber();
+        const timestamp = isEditingPurchase ? (existingPurchase.timestamp || Date.now()) : Date.now();
+
+        updates[`inventoryPurchases/${purchaseId}`] = {
+          id: purchaseId,
+          voucherNumber,
+          warehouseKeeper,
+          supplierId,
+          supplierNameAr: supplier.nameAr || '',
+          supplierNameEn: supplier.nameEn || '',
+          invoiceNumber,
+          items: purchaseItems,
+          timestamp,
+          ...(isEditingPurchase ? { updatedAt: Date.now() } : {})
+        };
+
+        await db.ref().update(updates);
+        showToast(isEditingPurchase ? `تم تعديل سند الشراء رقم: ${voucherNumber}` : `تم الشراء بنجاح. رقم السند: ${voucherNumber}`);
+        isPurchaseVoucherModalOpen = false;
+        resetPurchaseVoucherDraft(false);
+        renderAccounting('purchase');
+      } catch (error) {
+        console.error('Error submitting purchase voucher:', error);
+        showToast('حدث خطأ أثناء تنفيذ الشراء', true);
+      }
+    }
+
+    function confirmDeletePurchaseVoucher(purchaseId) {
+      const purchase = allInventoryPurchases.find(item => item.id === purchaseId);
+      if (!purchase) {
+        showToast('سند الشراء غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-96 text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد حذف سند الشراء</h2>
+          <p class="text-gray-600 mb-6">هل تريد حذف السند رقم "${purchase.voucherNumber || '-'}"؟ سيتم التراجع عن زيادة المخزون.</p>
+          <div class="flex gap-3">
+            <button onclick="deletePurchaseVoucherConfirmed('${purchaseId}')" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deletePurchaseVoucherConfirmed(purchaseId) {
+      const purchase = allInventoryPurchases.find(item => item.id === purchaseId);
+      if (!purchase) {
+        showToast('سند الشراء غير موجود', true);
+        return;
+      }
+
+      try {
+        const updates = {};
+        const purchaseItems = Array.isArray(purchase.items) ? purchase.items : [];
+
+        for (const item of purchaseItems) {
+          const product = allProducts.find(p => p.id === item.productId);
+          if (!product) continue;
+
+          const quantity = parseFloat(item.quantity) || 0;
+          const currentMainQuantity = ensureInventoryBranchQuantities(product).main;
+          const finalMainQuantity = parseFloat((currentMainQuantity - quantity).toFixed(3));
+          if (finalMainQuantity < -0.000001) {
+            showToast(`تعذر حذف السند بسبب عدم كفاية رصيد المنتج: ${product.nameAr || product.nameEn || ''}`, true);
+            return;
+          }
+
+          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
+        }
+
+        updates[`inventoryPurchases/${purchaseId}`] = null;
+        await db.ref().update(updates);
+        document.querySelector('.modal-overlay')?.remove();
+        if (editingPurchaseVoucherId === purchaseId) {
+          isPurchaseVoucherModalOpen = false;
+          resetPurchaseVoucherDraft(false);
+        }
+        showToast('تم حذف سند الشراء والتراجع عن الكميات');
+        renderAccounting('purchase');
+      } catch (error) {
+        console.error('Error deleting purchase voucher:', error);
+        showToast('حدث خطأ أثناء حذف سند الشراء', true);
+      }
     }
 
     // Issue Section
