@@ -273,6 +273,7 @@
     let currentPurchaseVoucherDraft = {
       warehouseKeeper: '',
       supplierId: '',
+      targetBranchId: 'main',
       invoiceNumber: '',
       items: []
     };
@@ -6146,6 +6147,7 @@ function toggleProductSelection(productId, categoryId) {
       currentPurchaseVoucherDraft = {
         warehouseKeeper: '',
         supplierId: '',
+        targetBranchId: 'main',
         invoiceNumber: '',
         items: []
       };
@@ -6170,6 +6172,7 @@ function toggleProductSelection(productId, categoryId) {
       currentPurchaseVoucherDraft = {
         warehouseKeeper: purchase.warehouseKeeper || '',
         supplierId: purchase.supplierId || '',
+        targetBranchId: purchase.targetBranchId || 'main',
         invoiceNumber: purchase.invoiceNumber || '',
         items: Array.isArray(purchase.items) ? purchase.items.map(item => ({
           productId: item.productId,
@@ -6313,7 +6316,7 @@ function toggleProductSelection(productId, categoryId) {
               <button onclick="closePurchaseVoucherModal()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
               <div>
                 <label class="block mb-2 font-bold text-gray-700">اسم أمين المخزن</label>
                 <input type="text" value="${currentPurchaseVoucherDraft.warehouseKeeper || ''}" oninput="currentPurchaseVoucherDraft.warehouseKeeper = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
@@ -6325,6 +6328,12 @@ function toggleProductSelection(productId, categoryId) {
                   ${allInventorySuppliers.map(supplier => `
                     <option value="${supplier.id}" ${currentPurchaseVoucherDraft.supplierId === supplier.id ? 'selected' : ''}>${getSupplierDisplayName(supplier)}</option>
                   `).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">الفرع</label>
+                <select onchange="currentPurchaseVoucherDraft.targetBranchId = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  ${getInventoryBranchOptionsHtml(currentPurchaseVoucherDraft.targetBranchId || 'main', false, true)}
                 </select>
               </div>
               <div>
@@ -6401,6 +6410,7 @@ function toggleProductSelection(productId, categoryId) {
                     <th>التاريخ</th>
                     <th>أمين المخزن</th>
                     <th>المورد</th>
+                    <th>الفرع</th>
                     <th>رقم فاتورة الشراء</th>
                     <th>عدد المنتجات</th>
                     <th>إجراءات</th>
@@ -6413,6 +6423,7 @@ function toggleProductSelection(productId, categoryId) {
                       <td>${purchase.timestamp ? `${formatDate(purchase.timestamp)} ${formatTime(purchase.timestamp)}` : '-'}</td>
                       <td>${purchase.warehouseKeeper || '-'}</td>
                       <td>${purchase.supplierNameAr || purchase.supplierNameEn || '-'}</td>
+                      <td>${purchase.targetBranchName || getInventoryBranchName(purchase.targetBranchId || 'main') || '-'}</td>
                       <td>${purchase.invoiceNumber || '-'}</td>
                       <td>${Array.isArray(purchase.items) ? purchase.items.length : 0}</td>
                       <td>
@@ -6424,7 +6435,7 @@ function toggleProductSelection(productId, categoryId) {
                     </tr>
                   `).join('') : `
                     <tr>
-                      <td colspan="7" class="text-center text-gray-500 py-8">لا توجد سندات شراء بعد</td>
+                      <td colspan="8" class="text-center text-gray-500 py-8">لا توجد سندات شراء بعد</td>
                     </tr>
                   `}
                 </tbody>
@@ -6439,11 +6450,17 @@ function toggleProductSelection(productId, categoryId) {
     async function submitPurchaseVoucher() {
       const warehouseKeeper = (currentPurchaseVoucherDraft.warehouseKeeper || '').trim();
       const supplierId = currentPurchaseVoucherDraft.supplierId;
+      const targetBranchId = currentPurchaseVoucherDraft.targetBranchId || 'main';
       const invoiceNumber = normalizeDecimalInput(currentPurchaseVoucherDraft.invoiceNumber || '');
       const items = Array.isArray(currentPurchaseVoucherDraft.items) ? currentPurchaseVoucherDraft.items : [];
       const isEditingPurchase = Boolean(editingPurchaseVoucherId);
       const existingPurchase = isEditingPurchase ? allInventoryPurchases.find(item => item.id === editingPurchaseVoucherId) : null;
       const supplier = allInventorySuppliers.find(item => item.id === supplierId);
+      const allowedBranches = new Set(INVENTORY_BRANCHES.map(branch => branch.id));
+      const normalizedTargetBranchId = allowedBranches.has(targetBranchId) ? targetBranchId : '';
+      const oldTargetBranchId = isEditingPurchase
+        ? (allowedBranches.has(existingPurchase?.targetBranchId) ? existingPurchase.targetBranchId : 'main')
+        : normalizedTargetBranchId;
 
       if (!warehouseKeeper) {
         showToast('الرجاء إدخال اسم أمين المخزن', true);
@@ -6451,6 +6468,10 @@ function toggleProductSelection(productId, categoryId) {
       }
       if (!supplierId || !supplier) {
         showToast('الرجاء اختيار المورد', true);
+        return;
+      }
+      if (!normalizedTargetBranchId) {
+        showToast('الرجاء اختيار الفرع', true);
         return;
       }
       if (!invoiceNumber) {
@@ -6505,14 +6526,34 @@ function toggleProductSelection(productId, categoryId) {
           const oldQuantity = oldItemsByProductId[productId] || 0;
           const newQuantity = newItemsByProductId[productId] || 0;
 
-          const mainAfterRevert = parseFloat((quantities.main - oldQuantity).toFixed(3));
-          if (mainAfterRevert < -0.000001) {
-            showToast(`تعذر تعديل السند لأن مخزون المنتج أصبح أقل من الكمية القديمة: ${product.nameAr || product.nameEn || ''}`, true);
+          const oldTargetCurrentQuantity = quantities[oldTargetBranchId] || 0;
+          const oldTargetAfterRevert = parseFloat((oldTargetCurrentQuantity - oldQuantity).toFixed(3));
+          if (oldTargetAfterRevert < -0.000001) {
+            showToast(`تعذر تعديل السند بسبب عدم كفاية رصيد الفرع القديم للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
             return;
           }
 
-          const finalMainQuantity = parseFloat((mainAfterRevert + newQuantity).toFixed(3));
-          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          let finalTargetQuantity = 0;
+          if (oldTargetBranchId === normalizedTargetBranchId) {
+            finalTargetQuantity = parseFloat((oldTargetAfterRevert + newQuantity).toFixed(3));
+            updates[`products/${product.id}/inventoryBranchQuantities/${normalizedTargetBranchId}`] = Math.max(0, finalTargetQuantity);
+          } else {
+            updates[`products/${product.id}/inventoryBranchQuantities/${oldTargetBranchId}`] = Math.max(0, oldTargetAfterRevert);
+            const newTargetCurrentQuantity = quantities[normalizedTargetBranchId] || 0;
+            finalTargetQuantity = parseFloat((newTargetCurrentQuantity + newQuantity).toFixed(3));
+            updates[`products/${product.id}/inventoryBranchQuantities/${normalizedTargetBranchId}`] = Math.max(0, finalTargetQuantity);
+          }
+
+          let finalMainQuantity = quantities.main || 0;
+          if (normalizedTargetBranchId === 'main') {
+            finalMainQuantity = oldTargetBranchId === 'main'
+              ? finalTargetQuantity
+              : parseFloat(((quantities.main || 0) + newQuantity).toFixed(3));
+          } else if (oldTargetBranchId === 'main') {
+            finalMainQuantity = oldTargetAfterRevert;
+          }
+
+          finalMainQuantity = Math.max(0, finalMainQuantity);
           updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
           updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
         }
@@ -6535,6 +6576,7 @@ function toggleProductSelection(productId, categoryId) {
           ? (existingPurchase.voucherNumber || await generateInventoryPurchaseNumber())
           : await generateInventoryPurchaseNumber();
         const timestamp = isEditingPurchase ? (existingPurchase.timestamp || Date.now()) : Date.now();
+        const targetBranchName = getInventoryBranchName(normalizedTargetBranchId);
 
         updates[`inventoryPurchases/${purchaseId}`] = {
           id: purchaseId,
@@ -6543,6 +6585,8 @@ function toggleProductSelection(productId, categoryId) {
           supplierId,
           supplierNameAr: supplier.nameAr || '',
           supplierNameEn: supplier.nameEn || '',
+          targetBranchId: normalizedTargetBranchId,
+          targetBranchName,
           invoiceNumber,
           items: purchaseItems,
           timestamp,
@@ -6592,20 +6636,24 @@ function toggleProductSelection(productId, categoryId) {
       try {
         const updates = {};
         const purchaseItems = Array.isArray(purchase.items) ? purchase.items : [];
+        const allowedBranches = new Set(INVENTORY_BRANCHES.map(branch => branch.id));
+        const targetBranchId = allowedBranches.has(purchase.targetBranchId) ? purchase.targetBranchId : 'main';
 
         for (const item of purchaseItems) {
           const product = allProducts.find(p => p.id === item.productId);
           if (!product) continue;
 
           const quantity = parseFloat(item.quantity) || 0;
-          const currentMainQuantity = ensureInventoryBranchQuantities(product).main;
-          const finalMainQuantity = parseFloat((currentMainQuantity - quantity).toFixed(3));
-          if (finalMainQuantity < -0.000001) {
-            showToast(`تعذر حذف السند بسبب عدم كفاية رصيد المنتج: ${product.nameAr || product.nameEn || ''}`, true);
+          const quantities = ensureInventoryBranchQuantities(product);
+          const targetCurrentQuantity = quantities[targetBranchId] || 0;
+          const finalTargetQuantity = parseFloat((targetCurrentQuantity - quantity).toFixed(3));
+          if (finalTargetQuantity < -0.000001) {
+            showToast(`تعذر حذف السند بسبب عدم كفاية رصيد الفرع للمنتج: ${product.nameAr || product.nameEn || ''}`, true);
             return;
           }
 
-          updates[`products/${product.id}/inventoryBranchQuantities/main`] = Math.max(0, finalMainQuantity);
+          updates[`products/${product.id}/inventoryBranchQuantities/${targetBranchId}`] = Math.max(0, finalTargetQuantity);
+          const finalMainQuantity = targetBranchId === 'main' ? Math.max(0, finalTargetQuantity) : Math.max(0, quantities.main || 0);
           updates[`products/${product.id}/inventoryQuantity`] = Math.max(0, finalMainQuantity);
           updates[`products/${product.id}/stock`] = Math.max(0, finalMainQuantity);
         }
