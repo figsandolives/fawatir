@@ -6428,6 +6428,7 @@ function toggleProductSelection(productId, categoryId) {
                       <td>${Array.isArray(purchase.items) ? purchase.items.length : 0}</td>
                       <td>
                         <div class="flex gap-2">
+                          <button onclick="viewPurchaseVoucher('${purchase.id}')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition">عرض</button>
                           <button onclick="openEditPurchaseVoucher('${purchase.id}')" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition">تعديل</button>
                           <button onclick="confirmDeletePurchaseVoucher('${purchase.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition">حذف</button>
                         </div>
@@ -6445,6 +6446,173 @@ function toggleProductSelection(productId, categoryId) {
           ${isPurchaseVoucherModalOpen ? renderPurchaseVoucherModal() : ''}
         </div>
       `;
+    }
+
+    function buildPurchaseVoucherInvoiceData(purchase) {
+      const supplier = allInventorySuppliers.find(item => item.id === purchase.supplierId);
+      const supplierNameAr = purchase.supplierNameAr || supplier?.nameAr || '';
+      const supplierNameEn = purchase.supplierNameEn || supplier?.nameEn || '';
+      const supplierPhone = purchase.supplierPhone || supplier?.phone || '-';
+      const branchName = purchase.targetBranchName || getInventoryBranchName(purchase.targetBranchId || 'main') || '-';
+      const purchaseDate = purchase.timestamp ? `${formatDate(purchase.timestamp)} ${formatTime(purchase.timestamp)}` : '-';
+      const items = Array.isArray(purchase.items) ? purchase.items : [];
+
+      const rows = items.map(item => {
+        const product = allProducts.find(p => p.id === item.productId);
+        const unitPrice = parseFloat(
+          item.unitPrice !== undefined
+            ? item.unitPrice
+            : (product?.price !== undefined ? product.price : 0)
+        ) || 0;
+        const quantity = parseFloat(item.quantity) || 0;
+        const lineTotal = parseFloat(
+          item.lineTotal !== undefined
+            ? item.lineTotal
+            : (unitPrice * quantity)
+        ) || 0;
+        const unitName = item.unitName || getInventoryUnitName(item.unitId || product?.inventoryUnitId) || '-';
+
+        return {
+          nameAr: item.nameAr || product?.nameAr || '',
+          nameEn: item.nameEn || product?.nameEn || '',
+          unitName,
+          unitPrice,
+          quantity,
+          lineTotal
+        };
+      });
+
+      const grandTotal = rows.reduce((sum, row) => sum + (parseFloat(row.lineTotal) || 0), 0);
+
+      return {
+        supplierNameAr,
+        supplierNameEn,
+        supplierPhone,
+        branchName,
+        purchaseDate,
+        rows,
+        grandTotal
+      };
+    }
+
+    function buildPurchaseVoucherA4Html(purchase) {
+      const data = buildPurchaseVoucherInvoiceData(purchase);
+
+      return `
+        <div style="max-width: 210mm; margin: 0 auto; background: #fff; border: 1px solid #d1d5db; border-radius: 12px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 12px;">
+            <div>
+              <h2 style="margin: 0; color: #1d4ed8; font-size: 26px; font-weight: 800;">سند شراء</h2>
+              <div style="font-size: 14px; color: #111827; font-weight: 700; margin-top: 2px;">مخبز التين والزيتون</div>
+              <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">رقم السند: <strong style="color: #111827;">${purchase.voucherNumber || '-'}</strong></div>
+            </div>
+            <div style="text-align: left;">
+              <img src="logo.png" alt="شعار الشركة" style="width: 95px; height: 95px; object-fit: contain;" onerror="this.style.display='none';">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px;">
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">أمين المخزن</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${purchase.warehouseKeeper || '-'}</div>
+            </div>
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">المورد</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${data.supplierNameAr || '-'}${data.supplierNameEn ? ` / ${data.supplierNameEn}` : ''}</div>
+            </div>
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">هاتف المورد</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${data.supplierPhone}</div>
+            </div>
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">الفرع</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${data.branchName}</div>
+            </div>
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">تاريخ الشراء</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${data.purchaseDate}</div>
+            </div>
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc;">
+              <div style="font-size: 11px; color: #6b7280;">رقم فاتورة الشراء</div>
+              <div style="font-size: 13px; font-weight: 700; color: #111827;">${purchase.invoiceNumber || '-'}</div>
+            </div>
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
+            <thead>
+              <tr>
+                <th style="border: 1px solid #d1d5db; padding: 8px; background: #1f2937; color: #fff; font-size: 12px; text-align: right;">الصنف</th>
+                <th style="border: 1px solid #d1d5db; padding: 8px; background: #1f2937; color: #fff; font-size: 12px; text-align: right;">الوحدة</th>
+                <th style="border: 1px solid #d1d5db; padding: 8px; background: #1f2937; color: #fff; font-size: 12px; text-align: right;">السعر</th>
+                <th style="border: 1px solid #d1d5db; padding: 8px; background: #1f2937; color: #fff; font-size: 12px; text-align: right;">الكمية</th>
+                <th style="border: 1px solid #d1d5db; padding: 8px; background: #1f2937; color: #fff; font-size: 12px; text-align: right;">القيمة الإجمالية</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.rows.length > 0 ? data.rows.map((row, index) => `
+                <tr style="background: ${index % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                  <td style="border: 1px solid #d1d5db; padding: 8px; font-size: 12px;">
+                    <div style="font-weight: 700; color: #111827;">${row.nameAr || '-'}</div>
+                    ${row.nameEn ? `<div style=\"color: #6b7280; font-size: 11px;\">${row.nameEn}</div>` : ''}
+                  </td>
+                  <td style="border: 1px solid #d1d5db; padding: 8px; font-size: 12px;">${row.unitName}</td>
+                  <td style="border: 1px solid #d1d5db; padding: 8px; font-size: 12px;">${row.unitPrice.toFixed(3)} د.ك</td>
+                  <td style="border: 1px solid #d1d5db; padding: 8px; font-size: 12px;">${formatInventoryDecimal(row.quantity)}</td>
+                  <td style="border: 1px solid #d1d5db; padding: 8px; font-size: 12px; font-weight: 700;">${row.lineTotal.toFixed(3)} د.ك</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="5" style="border: 1px solid #d1d5db; padding: 12px; text-align: center; color: #6b7280;">لا توجد أصناف في السند</td>
+                </tr>
+              `}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" style="border: 1px solid #d1d5db; padding: 10px; font-weight: 800; background: #e0e7ff; text-align: left;">الإجمالي</td>
+                <td style="border: 1px solid #d1d5db; padding: 10px; font-weight: 800; background: #e0e7ff;">${data.grandTotal.toFixed(3)} د.ك</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }
+
+    function viewPurchaseVoucher(purchaseId) {
+      const purchase = allInventoryPurchases.find(item => item.id === purchaseId);
+      if (!purchase) {
+        showToast('سند الشراء غير موجود', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-6xl max-h-[94vh] overflow-y-auto">
+          <div class="mb-4">
+            ${buildPurchaseVoucherA4Html(purchase)}
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button onclick="printPurchaseVoucher('${purchaseId}')" class="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إغلاق</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function printPurchaseVoucher(purchaseId) {
+      const purchase = allInventoryPurchases.find(item => item.id === purchaseId);
+      if (!purchase) {
+        showToast('سند الشراء غير موجود', true);
+        return;
+      }
+
+      const contentHtml = `
+        <div class="print-report">
+          ${buildPurchaseVoucherA4Html(purchase)}
+        </div>
+      `;
+      openA4PrintWindow(`سند شراء ${purchase.voucherNumber || ''}`, contentHtml);
     }
 
     async function submitPurchaseVoucher() {
@@ -6561,13 +6729,17 @@ function toggleProductSelection(productId, categoryId) {
         for (const [productId, quantity] of Object.entries(newItemsByProductId)) {
           const product = allProducts.find(p => p.id === productId);
           if (!product) continue;
+          const unitPrice = parseFloat(product.price) || 0;
+          const lineTotal = parseFloat((unitPrice * (parseFloat(quantity) || 0)).toFixed(3));
           purchaseItems.push({
             productId,
             nameAr: product.nameAr || '',
             nameEn: product.nameEn || '',
             quantity: parseFloat(quantity.toFixed(3)),
             unitId: product.inventoryUnitId || null,
-            unitName: getInventoryUnitName(product.inventoryUnitId) || ''
+            unitName: getInventoryUnitName(product.inventoryUnitId) || '',
+            unitPrice: parseFloat(unitPrice.toFixed(3)),
+            lineTotal
           });
         }
 
@@ -6585,6 +6757,7 @@ function toggleProductSelection(productId, categoryId) {
           supplierId,
           supplierNameAr: supplier.nameAr || '',
           supplierNameEn: supplier.nameEn || '',
+          supplierPhone: supplier.phone || '',
           targetBranchId: normalizedTargetBranchId,
           targetBranchName,
           invoiceNumber,
