@@ -217,12 +217,7 @@
       items: [],
       customer: null,
       deliveryPrice: 0,
-      orderType: '',
-      paymentMethod: '',
-      selectedAddress: null,
-      discountType: 'none',
-      discountValue: 0,
-      discountAmount: 0
+      orderType: null // 'delivery' or 'pickup'
     };
     let selectedProductsForCategory = [];
     let salesReportSearchTerm = '';
@@ -1204,12 +1199,7 @@ function refreshUI() {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: '',
-        paymentMethod: '',
-        selectedAddress: null,
-        discountType: 'none',
-        discountValue: 0,
-        discountAmount: 0
+        orderType: null
       };
       
       const page = document.createElement('div');
@@ -1235,7 +1225,7 @@ function refreshUI() {
               </div>
               
               <div class="p-4 border-t border-gray-300">
-                <button id="nextButton" onclick="showCheckoutModal()" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
+                <button id="nextButton" onclick="showOrderTypeSelection()" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
                   التالي
                 </button>
               </div>
@@ -1265,12 +1255,7 @@ function refreshUI() {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: '',
-        paymentMethod: '',
-        selectedAddress: null,
-        discountType: 'none',
-        discountValue: 0,
-        discountAmount: 0
+        orderType: null
       };
     }
     
@@ -1365,7 +1350,6 @@ function refreshUI() {
           price: product.price,
           quantity: 1,
           unit: product.unit || '',
-          notes: '',
           total: product.price
         });
       }
@@ -1393,9 +1377,6 @@ function refreshUI() {
               <span class="text-sm text-gray-600">× ${item.price.toFixed(3)}</span>
               <span class="font-bold text-blue-600 mr-auto">${item.total.toFixed(3)} د.ك</span>
             </div>
-            <div class="mt-2">
-              <textarea rows="2" placeholder="ملاحظة للصنف (اختياري)" oninput="updateItemNote(${index}, this.value)" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:border-blue-600 focus:outline-none">${item.notes || ''}</textarea>
-            </div>
           </div>
         `).join('');
         
@@ -1420,11 +1401,6 @@ function refreshUI() {
     function removeItemFromInvoice(index) {
       currentOrder.items.splice(index, 1);
       updateSelectedItemsDisplay();
-    }
-
-    function updateItemNote(index, value) {
-      if (!currentOrder.items[index]) return;
-      currentOrder.items[index].notes = (value || '').trim();
     }
 function showNumericKeypadForInvoice(index, inputField) {
   if (document.querySelector('.numeric-keypad-overlay')) return;
@@ -1508,375 +1484,6 @@ function showNumericKeypadForInvoice(index, inputField) {
   
   document.body.appendChild(overlay);
 }
-
-    let checkoutDiscountModalType = 'percent';
-
-    function getDiscountDescription(discountType, discountValue) {
-      const value = parseFloat(discountValue) || 0;
-      if (discountType === 'percent') return `نسبة ${formatInventoryDecimal(value)}%`;
-      if (discountType === 'fixed') return `قيمة ثابتة ${value.toFixed(3)} د.ك`;
-      return 'بدون خصم';
-    }
-
-    function calculateOrderDiscountAmount(baseTotal, discountType, discountValue) {
-      const value = parseFloat(discountValue) || 0;
-      if (value <= 0 || baseTotal <= 0) return 0;
-
-      let amount = discountType === 'percent'
-        ? baseTotal * (value / 100)
-        : value;
-      if (amount > baseTotal) amount = baseTotal;
-      return parseFloat(amount.toFixed(3));
-    }
-
-    function getCurrentOrderTotals() {
-      const subTotal = currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-      const deliveryPrice = parseFloat(currentOrder.deliveryPrice) || 0;
-      const beforeDiscount = subTotal + deliveryPrice;
-      const discountAmount = calculateOrderDiscountAmount(beforeDiscount, currentOrder.discountType, currentOrder.discountValue);
-      const total = parseFloat((beforeDiscount - discountAmount).toFixed(3));
-      return {
-        subTotal: parseFloat(subTotal.toFixed(3)),
-        deliveryPrice: parseFloat(deliveryPrice.toFixed(3)),
-        discountAmount,
-        total: Math.max(0, total)
-      };
-    }
-
-    function showCheckoutModal() {
-      if (currentOrder.items.length === 0) {
-        showToast('لا توجد منتجات في الفاتورة', true);
-        return;
-      }
-
-      currentOrder.orderType = currentOrder.orderType || 'pickup';
-      currentOrder.paymentMethod = currentOrder.paymentMethod || 'cash';
-      currentOrder.discountType = currentOrder.discountType || 'none';
-      currentOrder.discountValue = parseFloat(currentOrder.discountValue) || 0;
-      currentOrder.discountAmount = parseFloat(currentOrder.discountAmount) || 0;
-
-      const customerName = currentOrder.customer?.name || '';
-      const customerPhoneRaw = convertToEnglishNumbers((currentOrder.customer?.phone || '').toString());
-      const phoneWithoutPrefix = customerPhoneRaw.startsWith('965') ? customerPhoneRaw.slice(3) : customerPhoneRaw;
-      const selectedArea = currentOrder.selectedAddress?.area || '';
-      const knownArea = areas.includes(selectedArea);
-      const areaSelectValue = selectedArea ? (knownArea ? selectedArea : 'أخرى') : '';
-      const areaManualValue = knownArea ? '' : selectedArea;
-      const addressDetails = currentOrder.selectedAddress?.details || '';
-      const deliveryPrice = parseFloat(currentOrder.deliveryPrice) || 0;
-
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.id = 'checkoutModalOverlay';
-      modal.innerHTML = `
-        <div class="modal-content p-6 w-full max-w-5xl max-h-[92vh] overflow-y-auto">
-          <div class="flex justify-between items-center mb-5">
-            <h2 class="text-2xl font-bold text-blue-600">الخطوة الأخيرة - إتمام الفاتورة</h2>
-            <button onclick="document.getElementById('checkoutModalOverlay')?.remove()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-            <div class="bg-gray-50 p-4 rounded-lg">
-              <label class="block mb-2 font-bold text-gray-700">نوع الطلب</label>
-              <div class="grid grid-cols-2 gap-2">
-                <button id="checkoutDeliveryBtn" onclick="setCheckoutOrderType('delivery')" class="px-4 py-3 rounded-lg font-bold transition">🚚 توصيل</button>
-                <button id="checkoutPickupBtn" onclick="setCheckoutOrderType('pickup')" class="px-4 py-3 rounded-lg font-bold transition">🛍️ استلام</button>
-              </div>
-            </div>
-
-            <div class="bg-gray-50 p-4 rounded-lg">
-              <label class="block mb-2 font-bold text-gray-700">طريقة الدفع</label>
-              <div class="grid grid-cols-3 gap-2">
-                <button id="checkoutCashBtn" onclick="setCheckoutPaymentMethod('cash')" class="px-3 py-3 rounded-lg font-bold transition">💵 كاش</button>
-                <button id="checkoutOnlineBtn" onclick="setCheckoutPaymentMethod('online')" class="px-3 py-3 rounded-lg font-bold transition">💳 أونلاين</button>
-                <button id="checkoutKnetBtn" onclick="setCheckoutPaymentMethod('knet')" class="px-3 py-3 rounded-lg font-bold transition">💳 كي-نت</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white border-2 border-gray-200 rounded-xl p-4 mb-5">
-            <h3 class="text-lg font-bold text-gray-800 mb-3">بيانات العميل</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">اسم العميل</label>
-                <input id="checkoutCustomerName" type="text" value="${customerName}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
-                <div class="flex gap-2">
-                  <input id="checkoutCustomerPrefix" type="text" value="965" class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                  <input id="checkoutCustomerPhone" type="text" value="${phoneWithoutPrefix}" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div id="checkoutDeliveryFields" class="bg-white border-2 border-gray-200 rounded-xl p-4 mb-5 ${currentOrder.orderType === 'delivery' ? '' : 'hidden'}">
-            <h3 class="text-lg font-bold text-gray-800 mb-3">بيانات التوصيل</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">المنطقة</label>
-                <select id="checkoutDeliveryArea" onchange="toggleCheckoutAreaManual(); updateCheckoutTotals();" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                  <option value="">اختر المنطقة</option>
-                  ${areas.map(area => `<option value="${area}" ${areaSelectValue === area ? 'selected' : ''}>${area}</option>`).join('')}
-                  <option value="أخرى" ${areaSelectValue === 'أخرى' ? 'selected' : ''}>أخرى (كتابة يدوية)</option>
-                </select>
-                <input id="checkoutDeliveryAreaManual" type="text" value="${areaManualValue}" placeholder="اكتب المنطقة" class="w-full p-3 border-2 border-gray-300 rounded-lg mt-2 ${areaSelectValue === 'أخرى' ? '' : 'hidden'} focus:border-blue-600 focus:outline-none">
-              </div>
-              <div>
-                <label class="block mb-2 font-bold text-gray-700">رسوم التوصيل (د.ك)</label>
-                <input id="checkoutDeliveryPrice" type="text" value="${deliveryPrice.toFixed(3)}" oninput="this.value = convertToEnglishNumbers(this.value); updateCheckoutTotals();" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-              </div>
-              <div class="md:col-span-2">
-                <label class="block mb-2 font-bold text-gray-700">تفاصيل العنوان</label>
-                <textarea id="checkoutDeliveryAddress" rows="3" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">${addressDetails}</textarea>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-5">
-            <h3 class="text-lg font-bold text-blue-700 mb-3">ملخص الفاتورة</h3>
-            <div class="space-y-2 text-sm">
-              <div class="flex justify-between"><span>سعر الفاتورة الإجمالي:</span><span id="checkoutSubTotal" class="font-bold">0.000 د.ك</span></div>
-              <div class="flex justify-between"><span>سعر التوصيل:</span><span id="checkoutDeliveryTotal" class="font-bold">0.000 د.ك</span></div>
-              <div class="flex justify-between"><span>قيمة الخصم (<span id="checkoutDiscountLabel">بدون خصم</span>):</span><span id="checkoutDiscountAmount" class="font-bold text-red-600">0.000 د.ك</span></div>
-              <div class="border-t border-blue-200 pt-2 mt-2 flex justify-between text-lg font-extrabold"><span>الإجمالي الكلي:</span><span id="checkoutGrandTotal" class="text-blue-700">0.000 د.ك</span></div>
-            </div>
-            <div class="flex gap-2 mt-3">
-              <button onclick="requestDiscountPasswordForCheckout()" class="bg-yellow-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-yellow-600 transition">تطبيق خصم</button>
-              <button onclick="clearCheckoutDiscount()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">إزالة الخصم</button>
-            </div>
-          </div>
-
-          <div class="flex gap-3">
-            <button onclick="finalizeCheckoutOrder()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">طباعة الفاتورة</button>
-            <button onclick="document.getElementById('checkoutModalOverlay')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-
-      setCheckoutOrderType(currentOrder.orderType);
-      setCheckoutPaymentMethod(currentOrder.paymentMethod);
-      toggleCheckoutAreaManual();
-      updateCheckoutTotals();
-    }
-
-    function setCheckoutOrderType(type) {
-      currentOrder.orderType = type;
-      const deliveryBtn = document.getElementById('checkoutDeliveryBtn');
-      const pickupBtn = document.getElementById('checkoutPickupBtn');
-      const deliveryFields = document.getElementById('checkoutDeliveryFields');
-
-      if (deliveryBtn) deliveryBtn.className = `px-4 py-3 rounded-lg font-bold transition ${type === 'delivery' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-      if (pickupBtn) pickupBtn.className = `px-4 py-3 rounded-lg font-bold transition ${type === 'pickup' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-      if (deliveryFields) {
-        if (type === 'delivery') deliveryFields.classList.remove('hidden');
-        else deliveryFields.classList.add('hidden');
-      }
-      updateCheckoutTotals();
-    }
-
-    function setCheckoutPaymentMethod(method) {
-      currentOrder.paymentMethod = method;
-      const cashBtn = document.getElementById('checkoutCashBtn');
-      const onlineBtn = document.getElementById('checkoutOnlineBtn');
-      const knetBtn = document.getElementById('checkoutKnetBtn');
-
-      if (cashBtn) cashBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'cash' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-      if (onlineBtn) onlineBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'online' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-      if (knetBtn) knetBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'knet' ? 'bg-cyan-600 text-white' : 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'}`;
-    }
-
-    function toggleCheckoutAreaManual() {
-      const areaSelect = document.getElementById('checkoutDeliveryArea');
-      const manualInput = document.getElementById('checkoutDeliveryAreaManual');
-      if (!areaSelect || !manualInput) return;
-      if (areaSelect.value === 'أخرى') manualInput.classList.remove('hidden');
-      else manualInput.classList.add('hidden');
-    }
-
-    function updateCheckoutTotals() {
-      const subTotal = currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-      let deliveryPrice = 0;
-      if (currentOrder.orderType === 'delivery') {
-        deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('checkoutDeliveryPrice')?.value || '0')) || 0;
-      }
-      currentOrder.deliveryPrice = deliveryPrice;
-
-      const beforeDiscount = subTotal + deliveryPrice;
-      const discountAmount = calculateOrderDiscountAmount(beforeDiscount, currentOrder.discountType, currentOrder.discountValue);
-      currentOrder.discountAmount = discountAmount;
-      const total = Math.max(0, parseFloat((beforeDiscount - discountAmount).toFixed(3)));
-
-      const discountLabel = getDiscountDescription(currentOrder.discountType, currentOrder.discountValue);
-      const subTotalElem = document.getElementById('checkoutSubTotal');
-      const deliveryElem = document.getElementById('checkoutDeliveryTotal');
-      const discountLabelElem = document.getElementById('checkoutDiscountLabel');
-      const discountAmountElem = document.getElementById('checkoutDiscountAmount');
-      const grandElem = document.getElementById('checkoutGrandTotal');
-      if (subTotalElem) subTotalElem.textContent = `${subTotal.toFixed(3)} د.ك`;
-      if (deliveryElem) deliveryElem.textContent = `${deliveryPrice.toFixed(3)} د.ك`;
-      if (discountLabelElem) discountLabelElem.textContent = discountLabel;
-      if (discountAmountElem) discountAmountElem.textContent = `${discountAmount.toFixed(3)} د.ك`;
-      if (grandElem) grandElem.textContent = `${total.toFixed(3)} د.ك`;
-    }
-
-    function clearCheckoutDiscount() {
-      currentOrder.discountType = 'none';
-      currentOrder.discountValue = 0;
-      currentOrder.discountAmount = 0;
-      updateCheckoutTotals();
-    }
-
-    function requestDiscountPasswordForCheckout() {
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.id = 'discountPasswordModal';
-      modal.innerHTML = `
-        <div class="modal-content p-6 w-full max-w-md">
-          <h3 class="text-xl font-bold text-blue-600 mb-4">تطبيق خصم</h3>
-          <label class="block mb-2 font-bold text-gray-700">أدخل كلمة المرور</label>
-          <input id="discountPasswordInput" type="password" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-          <div class="flex gap-3 mt-5">
-            <button onclick="confirmDiscountPasswordForCheckout()" class="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-blue-700 transition">تأكيد</button>
-            <button onclick="document.getElementById('discountPasswordModal')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-    }
-
-    function confirmDiscountPasswordForCheckout() {
-      const password = document.getElementById('discountPasswordInput')?.value || '';
-      if (password !== '5130') {
-        showToast('كلمة المرور غير صحيحة', true);
-        return;
-      }
-      document.getElementById('discountPasswordModal')?.remove();
-      showDiscountValueModalForCheckout();
-    }
-
-    function showDiscountValueModalForCheckout() {
-      checkoutDiscountModalType = currentOrder.discountType === 'fixed' ? 'fixed' : 'percent';
-      const currentValue = parseFloat(currentOrder.discountValue) || 0;
-
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.id = 'discountValueModal';
-      modal.innerHTML = `
-        <div class="modal-content p-6 w-full max-w-md">
-          <h3 class="text-xl font-bold text-blue-600 mb-3">قيمة الخصم</h3>
-          <input id="discountValueDisplay" type="text" value="${currentValue > 0 ? formatInventoryDecimal(currentValue) : ''}" readonly class="w-full text-center text-3xl font-bold p-3 border-2 border-blue-300 rounded-lg mb-3">
-          <div class="grid grid-cols-2 gap-2 mb-3">
-            <button id="discountPercentBtn" onclick="setCheckoutDiscountModalType('percent')" class="py-2 rounded-lg font-bold transition">نسبة مئوية %</button>
-            <button id="discountFixedBtn" onclick="setCheckoutDiscountModalType('fixed')" class="py-2 rounded-lg font-bold transition">قيمة ثابتة</button>
-          </div>
-          <div class="grid grid-cols-3 gap-2 mb-4">
-            ${[
-              ['٧', '7'], ['٨', '8'], ['٩', '9'],
-              ['٤', '4'], ['٥', '5'], ['٦', '6'],
-              ['١', '1'], ['٢', '2'], ['٣', '3'],
-              ['٠', '0'], ['٫', '.'], ['⌫', 'delete']
-            ].map(item => `
-              <button onclick="handleCheckoutDiscountKeypad('${item[1]}')" class="bg-gray-100 hover:bg-gray-200 rounded-lg py-3 text-2xl font-bold">${item[0]}</button>
-            `).join('')}
-          </div>
-          <div class="flex gap-3">
-            <button onclick="applyCheckoutDiscountFromModal()" class="flex-1 bg-green-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-green-700 transition">تطبيق</button>
-            <button onclick="document.getElementById('discountValueModal')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      setCheckoutDiscountModalType(checkoutDiscountModalType);
-    }
-
-    function setCheckoutDiscountModalType(type) {
-      checkoutDiscountModalType = type;
-      const percentBtn = document.getElementById('discountPercentBtn');
-      const fixedBtn = document.getElementById('discountFixedBtn');
-      if (percentBtn) percentBtn.className = `py-2 rounded-lg font-bold transition ${type === 'percent' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-      if (fixedBtn) fixedBtn.className = `py-2 rounded-lg font-bold transition ${type === 'fixed' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
-    }
-
-    function handleCheckoutDiscountKeypad(value) {
-      const display = document.getElementById('discountValueDisplay');
-      if (!display) return;
-      if (value === 'delete') {
-        display.value = display.value.slice(0, -1);
-        return;
-      }
-      if (value === '.') {
-        if (!display.value.includes('.')) display.value += '.';
-        return;
-      }
-      display.value += value;
-    }
-
-    function applyCheckoutDiscountFromModal() {
-      const display = document.getElementById('discountValueDisplay');
-      if (!display) return;
-      const value = parseFloat(normalizeDecimalInput(display.value));
-      if (isNaN(value) || value <= 0) {
-        showToast('الرجاء إدخال قيمة خصم صحيحة', true);
-        return;
-      }
-      currentOrder.discountType = checkoutDiscountModalType;
-      currentOrder.discountValue = value;
-      document.getElementById('discountValueModal')?.remove();
-      updateCheckoutTotals();
-    }
-
-    function finalizeCheckoutOrder() {
-      const orderType = currentOrder.orderType;
-      const paymentMethod = currentOrder.paymentMethod;
-      const customerName = (document.getElementById('checkoutCustomerName')?.value || '').trim();
-      const phonePrefix = (document.getElementById('checkoutCustomerPrefix')?.value || '965').trim();
-      const customerPhone = normalizeDecimalInput(document.getElementById('checkoutCustomerPhone')?.value || '');
-
-      if (!orderType) {
-        showToast('اختر نوع الطلب', true);
-        return;
-      }
-      if (!paymentMethod) {
-        showToast('اختر طريقة الدفع', true);
-        return;
-      }
-      if (!customerName || !customerPhone) {
-        showToast('الرجاء إدخال اسم العميل ورقم الهاتف', true);
-        return;
-      }
-
-      currentOrder.customer = {
-        name: customerName,
-        phone: `${phonePrefix}${customerPhone}`
-      };
-
-      if (orderType === 'delivery') {
-        let area = document.getElementById('checkoutDeliveryArea')?.value || '';
-        if (area === 'أخرى') {
-          area = (document.getElementById('checkoutDeliveryAreaManual')?.value || '').trim();
-        }
-        const details = (document.getElementById('checkoutDeliveryAddress')?.value || '').trim();
-        const deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('checkoutDeliveryPrice')?.value || '0')) || 0;
-
-        if (!area || !details) {
-          showToast('الرجاء إدخال عنوان التوصيل بالكامل', true);
-          return;
-        }
-
-        currentOrder.deliveryPrice = deliveryPrice;
-        currentOrder.selectedAddress = { area, details };
-      } else {
-        currentOrder.deliveryPrice = 0;
-        currentOrder.selectedAddress = null;
-      }
-
-      updateCheckoutTotals();
-      document.getElementById('checkoutModalOverlay')?.remove();
-      printAndSaveInvoice();
-    }
 
     
      function showOrderTypeSelection() {
@@ -2382,7 +1989,6 @@ function showNumericKeypadForInvoice(index, inputField) {
       // Get branch-specific invoice number
       const invoiceNumber = await generateInvoiceNumber(currentBranch);
       const timestamp = Date.now();
-      const totals = getCurrentOrderTotals();
       
       // Clean items to ensure all fields have valid values
       const cleanedItems = currentOrder.items.map(item => ({
@@ -2392,8 +1998,7 @@ function showNumericKeypadForInvoice(index, inputField) {
         price: item.price || 0,
         quantity: item.quantity || 0,
         total: item.total || 0,
-        unit: item.unit || '',
-        notes: item.notes || ''
+        unit: item.unit || ''
       }));
       
       const order = {
@@ -2408,12 +2013,9 @@ function showNumericKeypadForInvoice(index, inputField) {
         paymentMethod: currentOrder.paymentMethod || '',
         address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : '',
         items: cleanedItems,
-        subTotal: totals.subTotal,
-        deliveryPrice: totals.deliveryPrice,
-        discountType: currentOrder.discountType || 'none',
-        discountValue: parseFloat(currentOrder.discountValue) || 0,
-        discountAmount: totals.discountAmount,
-        total: totals.total
+        deliveryPrice: currentOrder.deliveryPrice || 0,
+        notes: currentOrder.notes || '',
+        total: currentOrder.items.reduce((sum, item) => sum + item.total, 0) + (currentOrder.deliveryPrice || 0)
       };
       
       try {
@@ -2512,17 +2114,18 @@ function showNumericKeypadForInvoice(index, inputField) {
               <span>${order.deliveryPrice.toFixed(3)} د.ك</span>
             </div>
           ` : ''}
-          ${(parseFloat(order.discountAmount) || 0) > 0 ? `
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #b91c1c;">
-              <span>الخصم (${getDiscountDescription(order.discountType, order.discountValue)}):</span>
-              <span>-${(parseFloat(order.discountAmount) || 0).toFixed(3)} د.ك</span>
-            </div>
-          ` : ''}
           <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 900; margin-top: 5px; border-top: 2px double #000; padding-top: 5px;">
             <span>الإجمالي:</span>
             <span>${order.total.toFixed(3)} د.ك</span>
           </div>
         </div>
+
+        ${order.notes ? `
+<div style="background: #fffbeb; border: 1px dashed #fbbf24; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 11px;">
+  <div style="font-weight: bold; margin-bottom: 3px; color: #92400e;">📝 ملاحظات:</div>
+  <div style="color: #451a03; line-height: 1.4;">${order.notes}</div>
+</div>
+` : ''}
 
         <div style="text-align: center; margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px;">
           <div style="font-size: 11px; font-weight: bold;">شكراً لزيارتكم!</div>
@@ -2674,12 +2277,7 @@ function printThermalInvoice(button) {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: '',
-        paymentMethod: '',
-        selectedAddress: null,
-        discountType: 'none',
-        discountValue: 0,
-        discountAmount: 0
+        orderType: null
       };
       document.querySelector('.modal-overlay').remove();
       currentScreen = 'home';
@@ -2762,9 +2360,6 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'orders' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('orders')">
             📦 الطلبات
           </div>
-          <div class="sidebar-item ${section === 'discountRequests' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('discountRequests')">
-            🏷️ طلبات الخصومات
-          </div>
           <div class="sidebar-item ${section === 'salesReport' || section === 'salesReportBranchDetails' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('salesReport')">
             📈 تقرير المبيعات
           </div>
@@ -2813,8 +2408,6 @@ function renderAccountingContent(section) {
   switch(section) {
     case 'orders': 
       return renderOrdersSection();
-    case 'discountRequests':
-      return renderDiscountRequestsSection();
     case 'salesReport':
       return renderSalesReportSection();
     case 'salesReportBranchDetails':
@@ -2935,76 +2528,6 @@ function renderAccountingContent(section) {
     </div>
   `;
 }
-
-    function renderDiscountRequestsSection() {
-      const discountedOrders = allOrders
-        .filter(order => (parseFloat(order.discountAmount) || 0) > 0)
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-      return `
-        <div>
-          <div class="flex justify-between items-center mb-6">
-            <h2 class="text-3xl font-bold text-blue-600">طلبات الخصومات</h2>
-            <div class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold">عدد الطلبات: ${discountedOrders.length}</div>
-          </div>
-
-          <div class="bg-white p-6 rounded-xl shadow-lg">
-            <div class="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr>
-                    <th>رقم الفاتورة</th>
-                    <th>التاريخ</th>
-                    <th>العميل</th>
-                    <th>الهاتف</th>
-                    <th>الكاشير</th>
-                    <th>الفرع</th>
-                    <th>نوع الطلب</th>
-                    <th>طريقة الدفع</th>
-                    <th>العنوان</th>
-                    <th>مجموع الأصناف</th>
-                    <th>التوصيل</th>
-                    <th>نوع الخصم</th>
-                    <th>قيمة الخصم</th>
-                    <th>الإجمالي بعد الخصم</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${discountedOrders.length > 0 ? discountedOrders.map(order => {
-                    const itemsSubTotal = parseFloat(order.subTotal) || (Array.isArray(order.items) ? order.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0) : 0);
-                    const deliveryPrice = parseFloat(order.deliveryPrice) || 0;
-                    const discountAmount = parseFloat(order.discountAmount) || 0;
-                    const finalTotal = parseFloat(order.total) || Math.max(0, itemsSubTotal + deliveryPrice - discountAmount);
-                    return `
-                      <tr>
-                        <td>${order.invoiceNumber || '-'}</td>
-                        <td>${order.timestamp ? `${formatDate(order.timestamp)} ${formatTime(order.timestamp)}` : '-'}</td>
-                        <td>${order.customerName || '-'}</td>
-                        <td>${order.phoneNumber || '-'}</td>
-                        <td>${order.cashier || '-'}</td>
-                        <td>${order.branch || '-'}</td>
-                        <td>${order.orderType === 'delivery' ? 'توصيل' : order.orderType === 'pickup' ? 'استلام' : '-'}</td>
-                        <td>${getPaymentMethodLabel(order.paymentMethod, false)}</td>
-                        <td>${order.address || '-'}</td>
-                        <td>${itemsSubTotal.toFixed(3)} د.ك</td>
-                        <td>${deliveryPrice.toFixed(3)} د.ك</td>
-                        <td>${getDiscountDescription(order.discountType, order.discountValue)}</td>
-                        <td class="text-red-600 font-bold">${discountAmount.toFixed(3)} د.ك</td>
-                        <td class="font-bold text-blue-700">${finalTotal.toFixed(3)} د.ك</td>
-                      </tr>
-                    `;
-                  }).join('') : `
-                    <tr>
-                      <td colspan="14" class="text-center text-gray-500 py-8">لا توجد فواتير عليها خصم</td>
-                    </tr>
-                  `}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `;
-    }
 
     function filterOrders() {
       const searchTerm = document.getElementById('orderSearch').value.toLowerCase();
