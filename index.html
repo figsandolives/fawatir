@@ -3754,7 +3754,7 @@ function renderAccountingContent(section) {
             </thead>
             <tbody id="ordersBody">
               ${allOrders.map(order => `
-	                <tr class="order-row" data-order-id="${order.id || ''}" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
+                <tr class="order-row" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
                   <td>${order.invoiceNumber || 'N/A'}</td>
                   <td>${order.customerName || 'N/A'}</td>
                   <td>${order.phoneNumber || 'N/A'}</td>
@@ -3858,10 +3858,10 @@ function renderAccountingContent(section) {
       });
     }
 
-	    function applyFilters() {
-	      const fromDate = document.getElementById('filterFrom').value;
-	      const toDate = document.getElementById('filterTo').value;
-	      const cashier = document.getElementById('filterCashier').value;
+    function applyFilters() {
+      const fromDate = document.getElementById('filterFrom').value;
+      const toDate = document.getElementById('filterTo').value;
+      const cashier = document.getElementById('filterCashier').value;
       const branch = document.getElementById('filterBranch').value;
       
       const rows = document.querySelectorAll('.order-row');
@@ -3886,34 +3886,13 @@ function renderAccountingContent(section) {
         if (cashier && rowCashier !== cashier) show = false;
         if (branch && rowBranch !== branch) show = false;
         
-	        row.style.display = show ? '' : 'none';
-	      });
-	    }
+        row.style.display = show ? '' : 'none';
+      });
+    }
 
-	    function getOrderFromOrderRow(row) {
-	      const rowOrderId = row.getAttribute('data-order-id') || '';
-	      if (rowOrderId) {
-	        const orderById = allOrders.find(order => String(order.id || '') === rowOrderId);
-	        if (orderById) return orderById;
-	      }
-
-	      const invoiceNumber = (row.cells[0]?.textContent || '').trim().replace('#', '');
-	      const branch = row.getAttribute('data-branch') || (row.cells[5]?.textContent || '').trim();
-	      const timestamp = parseInt(row.getAttribute('data-timestamp') || '0', 10) || 0;
-
-	      return allOrders.find(order =>
-	        String(order.invoiceNumber || '') === invoiceNumber &&
-	        (!branch || String(order.branch || '') === branch) &&
-	        (!timestamp || Number(order.timestamp || 0) === timestamp)
-	      ) || allOrders.find(order =>
-	        String(order.invoiceNumber || '') === invoiceNumber &&
-	        (!branch || String(order.branch || '') === branch)
-	      ) || allOrders.find(order => String(order.invoiceNumber || '') === invoiceNumber) || null;
-	    }
-
-	        function exportToExcel() {
-	  const rows = document.querySelectorAll('.order-row');
-	  let totalNet = 0;
+        function exportToExcel() {
+  const rows = document.querySelectorAll('.order-row');
+  let totalNet = 0;
   let totalDelivery = 0;
   let totalFinal = 0;
   let data = [];
@@ -3922,8 +3901,9 @@ function renderAccountingContent(section) {
     if (row.style.display !== 'none') {
       const cells = row.cells;
       
-	      // نستخدم id الحقيقي للطلب حتى لا نخلط بين فواتير لها نفس الرقم في فروع مختلفة.
-	      const order = getOrderFromOrderRow(row);
+      // استخراج بيانات الطلب من الصف
+      const orderId = cells[0].textContent.trim().replace('#', '');
+      const order = allOrders.find(o => o.invoiceNumber === orderId);
       
       if (order) {
         // حساب الأسعار
@@ -4038,12 +4018,13 @@ function renderAccountingContent(section) {
   const rows = document.querySelectorAll('.order-row');
   let visibleOrders = [];
   
-	  rows.forEach(row => {
-	    if (row.style.display !== 'none') {
-	      const order = getOrderFromOrderRow(row);
-	      if (order) {
-	        visibleOrders.push(order);
-	      }
+  rows.forEach(row => {
+    if (row.style.display !== 'none') {
+      const orderId = row.cells[0].textContent.trim().replace('#', '');
+      const order = allOrders.find(o => o.invoiceNumber === orderId);
+      if (order) {
+        visibleOrders.push(order);
+      }
     }
   });
   
