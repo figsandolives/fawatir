@@ -168,6 +168,64 @@
       border: 1px solid #ccc;
       border-radius: 4px;
     }
+
+    .invoice-product-toolbar {
+      display: flex;
+      align-items: stretch;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .invoice-product-search {
+      flex: 1;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+
+    .invoice-total-box {
+      min-width: 150px;
+      min-height: 54px;
+      background: white;
+      border: 2px solid #bfdbfe;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 6px;
+      direction: ltr;
+      padding: 8px 14px;
+      margin-inline-start: auto;
+      white-space: nowrap;
+    }
+
+    .invoice-total-box.hidden {
+      display: none;
+    }
+
+    .invoice-total-value {
+      color: #2563eb;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .invoice-total-currency {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    @media (max-width: 768px) {
+      .invoice-product-toolbar {
+        flex-direction: column-reverse;
+      }
+
+      .invoice-total-box {
+        align-self: flex-end;
+      }
+    }
   </style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
@@ -1233,7 +1291,13 @@ function refreshUI() {
             
             <!-- Left side - Products -->
             <div class="flex-1 p-6 overflow-y-auto bg-gray-50">
-              <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-6 focus:border-blue-600 focus:outline-none text-lg">
+              <div class="invoice-product-toolbar">
+                <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="invoice-product-search w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-lg">
+                <div id="invoiceTotalBox" class="invoice-total-box" aria-live="polite">
+                  <span id="invoiceTotalValue" class="invoice-total-value">0.000</span>
+                  <span class="invoice-total-currency">KD</span>
+                </div>
+              </div>
               
               <div id="categoriesAndProductsContainer">
                 ${renderCategoriesForInvoice()}
@@ -1244,6 +1308,7 @@ function refreshUI() {
       `;
       
       document.body.appendChild(page);
+      updateInvoicePricingBox();
     }
     
     function closeInvoicePage() {
@@ -1334,6 +1399,22 @@ function refreshUI() {
         </div>
       `;
     }
+
+    function calculateInvoiceItemsTotal() {
+      return currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+    }
+
+    function updateInvoicePricingBox() {
+      const totalValue = document.getElementById('invoiceTotalValue');
+      if (!totalValue) return;
+      totalValue.textContent = calculateInvoiceItemsTotal().toFixed(3);
+    }
+
+    function setInvoicePricingBoxVisible(isVisible) {
+      const totalBox = document.getElementById('invoiceTotalBox');
+      if (!totalBox) return;
+      totalBox.classList.toggle('hidden', !isVisible);
+    }
     
     function addProductToInvoice(productId) {
       const product = allProducts.find(p => p.id === productId);
@@ -1360,6 +1441,7 @@ function refreshUI() {
     function updateSelectedItemsDisplay() {
       const container = document.getElementById('selectedItemsContainer');
       const nextButton = document.getElementById('nextButton');
+      updateInvoicePricingBox();
       
       if (currentOrder.items.length === 0) {
         container.innerHTML = '<div class="text-center text-gray-400 py-8">لا توجد منتجات</div>';
@@ -1487,6 +1569,7 @@ function showNumericKeypadForInvoice(index, inputField) {
 
     
      function showOrderTypeSelection() {
+      setInvoicePricingBoxVisible(false);
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
@@ -1521,7 +1604,7 @@ function showNumericKeypadForInvoice(index, inputField) {
               🛍️ استلام
             </button>
           </div>
-          <button onclick="this.closest('.modal-overlay').remove()" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          <button onclick="this.closest('.modal-overlay').remove(); setInvoicePricingBoxVisible(true)" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
         </div>
       `;
       document.body.appendChild(modal);
