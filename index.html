@@ -2396,10 +2396,26 @@ function printThermalInvoice(button) {
 }
 
     
-    function reprintInvoice(orderId) {
-      const order = allOrders.find(o => o.id === orderId);
-      if (order) {
+    async function reprintInvoice(orderId) {
+      try {
+        const snapshot = await db.ref(`orders/${orderId}`).once('value');
+        const latestOrder = snapshot.val();
+        const order = latestOrder ? { id: orderId, ...latestOrder } : allOrders.find(o => o.id === orderId);
+
+        if (!order) {
+          showToast('الفاتورة غير موجودة', true);
+          return;
+        }
+
         showThermalInvoice(order);
+      } catch (error) {
+        console.error('Error reprinting invoice:', error);
+        const order = allOrders.find(o => o.id === orderId);
+        if (order) {
+          showThermalInvoice(order);
+          return;
+        }
+        showToast('تعذر تحميل الفاتورة للطباعة', true);
       }
     }
 
@@ -8926,7 +8942,15 @@ async function saveOrderEdit() {
   try {
     // 3. الحفظ المباشر في Firebase باستخدام الكائن db المعرف في كودك
     const orderId = currentEditingOrder.id;
-    await db.ref(`orders/${orderId}`).set(currentEditingOrder);
+    const updatedOrder = JSON.parse(JSON.stringify(currentEditingOrder));
+    await db.ref(`orders/${orderId}`).set(updatedOrder);
+
+    const existingOrderIndex = allOrders.findIndex(order => order.id === orderId);
+    if (existingOrderIndex >= 0) {
+      allOrders[existingOrderIndex] = updatedOrder;
+    } else {
+      allOrders.push(updatedOrder);
+    }
 
     // 4. تحديث البيانات محلياً في القائمة العامة
     await loadData(); 
