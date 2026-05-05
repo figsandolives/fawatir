@@ -337,6 +337,10 @@
     };
     let editingTransferVoucherId = '';
     let editingPurchaseVoucherId = '';
+    const EDIT_ORDER_DISCOUNT_PASSWORD = '54321';
+    let editOrderDiscountUnlocked = false;
+    let editOrderDiscountSelectedIndexes = [];
+    let editOrderDiscountPercentDraft = '';
     let isIssueVoucherModalOpen = false;
     let isTransferVoucherModalOpen = false;
     let isPurchaseVoucherModalOpen = false;
@@ -585,10 +589,12 @@
     function convertToEnglishNumbers(str) {
       str = (str === undefined || str === null) ? '' : String(str);
       const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+      const persianNumbers = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
       const englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
       
       for (let i = 0; i < 10; i++) {
         str = str.replace(new RegExp(arabicNumbers[i], 'g'), englishNumbers[i]);
+        str = str.replace(new RegExp(persianNumbers[i], 'g'), englishNumbers[i]);
       }
       
       return str;
@@ -607,6 +613,54 @@
       }
 
       return normalized;
+    }
+
+    function normalizeDiscountPercentageInput(value) {
+      return normalizeDecimalInput(value);
+    }
+
+    function getOrderDeliveryFee(order) {
+      return parseFloat(order?.deliveryFee ?? order?.deliveryPrice ?? 0) || 0;
+    }
+
+    function getItemGrossTotal(item) {
+      const quantity = parseFloat(item?.quantity) || 0;
+      const price = parseFloat(item?.price) || 0;
+      const grossFromPrice = quantity * price;
+      const storedGross = parseFloat(item?.grossTotal);
+      if (!isNaN(storedGross) && storedGross > 0) return storedGross;
+      return grossFromPrice;
+    }
+
+    function getItemDiscountAmount(item) {
+      const storedDiscount = parseFloat(item?.discountAmount);
+      if (!isNaN(storedDiscount) && storedDiscount > 0) return storedDiscount;
+
+      const discountPercent = parseFloat(item?.discountPercent) || 0;
+      if (discountPercent <= 0) return 0;
+
+      return getItemGrossTotal(item) * (discountPercent / 100);
+    }
+
+    function getOrderItemsGrossTotal(order) {
+      return (order?.items || []).reduce((sum, item) => sum + getItemGrossTotal(item), 0);
+    }
+
+    function getOrderDiscountTotal(order) {
+      const itemsDiscountTotal = (order?.items || []).reduce((sum, item) => sum + getItemDiscountAmount(item), 0);
+      if (itemsDiscountTotal > 0) return itemsDiscountTotal;
+
+      const storedDiscount = parseFloat(order?.discountTotal);
+      if (!isNaN(storedDiscount) && storedDiscount > 0) return storedDiscount;
+      return 0;
+    }
+
+    function getOrderItemsNetTotal(order) {
+      return (order?.items || []).reduce((sum, item) => sum + (parseFloat(item?.total) || 0), 0);
+    }
+
+    function getOrderGrandTotal(order) {
+      return getOrderItemsNetTotal(order) + getOrderDeliveryFee(order);
     }
 
     function getInventoryBranchName(branchId) {
@@ -2116,6 +2170,11 @@ function showNumericKeypadForInvoice(index, inputField) {
     }
     
     function showThermalInvoice(order) {
+  const invoiceDeliveryFee = getOrderDeliveryFee(order);
+  const invoiceItemsSubtotal = getOrderItemsGrossTotal(order);
+  const invoiceDiscountTotal = getOrderDiscountTotal(order);
+  const invoiceItemsNetTotal = getOrderItemsNetTotal(order);
+  const invoiceGrandTotal = invoiceItemsNetTotal + invoiceDeliveryFee;
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.innerHTML = `
@@ -2177,10 +2236,11 @@ function showNumericKeypadForInvoice(index, inputField) {
                 <td style="padding: 4px 0; border-bottom: 1px dotted #eee;">
                   <div style="font-weight: 700;">${item.productName}</div>
                   ${item.productNameEn ? `<div style="font-size: 9px; color: #666;">${item.productNameEn}</div>` : ''}
+                  ${getItemDiscountAmount(item) > 0 ? `<div style="font-size: 9px; color: #b91c1c;">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
                   ${item.notes ? `<div style="font-size: 10px; color: #0066cc; margin-top: 2px; font-weight: 600;">📝 ${item.notes}</div>` : ''}
                 </td>
                 <td style="text-align: center; font-weight: bold; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.quantity}</td>
-                <td style="text-align: left; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.total.toFixed(3)}</td>
+                <td style="text-align: left; padding: 4px 0; border-bottom: 1px dotted #eee;">${formatNumberWithThreeDecimals(item.total)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -2189,17 +2249,23 @@ function showNumericKeypadForInvoice(index, inputField) {
         <div style="margin-top: 10px; border-top: 1px solid #000; padding-top: 5px; font-size: 11px;">
           <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
             <span>مجموع الأصناف:</span>
-            <span>${order.items.reduce((sum, item) => sum + item.total, 0).toFixed(3)} د.ك</span>
+            <span>${invoiceItemsSubtotal.toFixed(3)} د.ك</span>
           </div>
-          ${order.deliveryPrice > 0 ? `
+          ${invoiceDiscountTotal > 0 ? `
+            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #b91c1c;">
+              <span>المبلغ المخصوم:</span>
+              <span>-${invoiceDiscountTotal.toFixed(3)} د.ك</span>
+            </div>
+          ` : ''}
+          ${invoiceDeliveryFee > 0 ? `
             <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
               <span>رسوم التوصيل:</span>
-              <span>${order.deliveryPrice.toFixed(3)} د.ك</span>
+              <span>${invoiceDeliveryFee.toFixed(3)} د.ك</span>
             </div>
           ` : ''}
           <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 900; margin-top: 5px; border-top: 2px double #000; padding-top: 5px;">
             <span>الإجمالي:</span>
-            <span>${order.total.toFixed(3)} د.ك</span>
+            <span>${invoiceGrandTotal.toFixed(3)} د.ك</span>
           </div>
         </div>
 
@@ -2903,8 +2969,11 @@ function renderAccountingContent(section) {
   
   // إضافة كل فاتورة
   visibleOrders.forEach((order, index) => {
-    const deliveryFee = parseFloat(order.deliveryFee) || parseFloat(order.deliveryPrice) || 0;
-    const netAmount = parseFloat(order.total) - deliveryFee;
+    const deliveryFee = getOrderDeliveryFee(order);
+    const itemsSubtotal = getOrderItemsGrossTotal(order);
+    const discountTotal = getOrderDiscountTotal(order);
+    const netAmount = getOrderItemsNetTotal(order);
+    const grandTotal = netAmount + deliveryFee;
     
     allInvoicesHtml += `
       <div class="invoice-page">
@@ -2943,15 +3012,28 @@ function renderAccountingContent(section) {
           <tbody>
             ${(order.items || []).map(item => `
               <tr>
-                <td>${item.productName}</td>
+                <td>
+                  ${item.productName}
+                  ${getItemDiscountAmount(item) > 0 ? `<div style="font-size: 11px; color: #b91c1c;">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
+                </td>
                 <td style="text-align: center;">${item.quantity} ${item.unit}</td>
-                <td style="text-align: left;">${(item.total || 0).toFixed(3)} د.ك</td>
+                <td style="text-align: left;">${formatNumberWithThreeDecimals(item.total)} د.ك</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
         
         <div class="totals">
+          <div class="total-row">
+            <span>مجموع الأصناف:</span>
+            <span>${itemsSubtotal.toFixed(3)} د.ك</span>
+          </div>
+          ${discountTotal > 0 ? `
+          <div class="total-row" style="color: #b91c1c;">
+            <span>المبلغ المخصوم:</span>
+            <span>-${discountTotal.toFixed(3)} د.ك</span>
+          </div>
+          ` : ''}
           <div class="total-row">
             <span>صافي الفاتورة:</span>
             <span>${netAmount.toFixed(3)} د.ك</span>
@@ -2964,7 +3046,7 @@ function renderAccountingContent(section) {
           ` : ''}
           <div class="total-row final">
             <span>الإجمالي:</span>
-            <span>${parseFloat(order.total).toFixed(3)} د.ك</span>
+            <span>${grandTotal.toFixed(3)} د.ك</span>
           </div>
         </div>
         
@@ -2994,6 +3076,11 @@ function renderAccountingContent(section) {
 
     function viewOrder(orderId) {
       const order = allOrders.find(o => o.id === orderId);
+      const deliveryFee = getOrderDeliveryFee(order);
+      const itemsSubtotal = getOrderItemsGrossTotal(order);
+      const discountTotal = getOrderDiscountTotal(order);
+      const itemsNetTotal = getOrderItemsNetTotal(order);
+      const grandTotal = itemsNetTotal + deliveryFee;
       
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
@@ -3020,20 +3107,35 @@ function renderAccountingContent(section) {
               <div class="flex justify-between py-2 border-b border-gray-200">
                 <div>
                   <div class="font-bold">${item.productName}</div>
-                  <div class="text-sm text-gray-600">${item.price ? item.price.toFixed(3) : '0.000'} × ${item.quantity} ${item.unit}</div>
+                  <div class="text-sm text-gray-600">${formatNumberWithThreeDecimals(item.price)} × ${item.quantity} ${item.unit}</div>
+                  ${getItemDiscountAmount(item) > 0 ? `<div class="text-sm text-red-600">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
                 </div>
-                <div class="font-bold text-blue-600">${item.total ? item.total.toFixed(3) : '0.000'}</div>
+                <div class="font-bold text-blue-600">${formatNumberWithThreeDecimals(item.total)}</div>
               </div>
             `).join('')}
-            ${order.deliveryPrice > 0 ? `
+            <div class="flex justify-between py-2 border-b border-gray-200">
+              <div class="font-bold">مجموع الأصناف</div>
+              <div class="font-bold text-blue-600">${itemsSubtotal.toFixed(3)}</div>
+            </div>
+            ${discountTotal > 0 ? `
+              <div class="flex justify-between py-2 border-b border-gray-200 text-red-600">
+                <div class="font-bold">المبلغ المخصوم</div>
+                <div class="font-bold">-${discountTotal.toFixed(3)}</div>
+              </div>
+            ` : ''}
+            <div class="flex justify-between py-2 border-b border-gray-200">
+              <div class="font-bold">صافي الأصناف</div>
+              <div class="font-bold text-blue-600">${itemsNetTotal.toFixed(3)}</div>
+            </div>
+            ${deliveryFee > 0 ? `
               <div class="flex justify-between py-2 border-b border-gray-200">
                 <div class="font-bold">رسوم التوصيل</div>
-                <div class="font-bold text-blue-600">${order.deliveryPrice.toFixed(3)}</div>
+                <div class="font-bold text-blue-600">${deliveryFee.toFixed(3)}</div>
               </div>
             ` : ''}
             <div class="flex justify-between py-4 text-lg font-bold text-blue-600">
               <div>المجموع الكلي</div>
-              <div>${order.total ? order.total.toFixed(3) : '0.000'} د.ك</div>
+              <div>${grandTotal.toFixed(3)} د.ك</div>
             </div>
           </div>
           
@@ -8480,6 +8582,10 @@ async function editOrder(orderId) {
   }
   
   currentEditingOrder = JSON.parse(JSON.stringify(order)); // نسخة للتعديل
+  editOrderDiscountUnlocked = false;
+  editOrderDiscountSelectedIndexes = [];
+  editOrderDiscountPercentDraft = '';
+  normalizeEditingOrderItems();
   
   const modal = document.getElementById('editOrderModal');
   modal.style.display = 'flex';
@@ -8494,15 +8600,161 @@ async function editOrder(orderId) {
   renderEditProducts();
 }
 
+function normalizeEditingOrderItems() {
+  if (!currentEditingOrder || !Array.isArray(currentEditingOrder.items)) return;
+
+  currentEditingOrder.items.forEach(item => {
+    const discountPercent = parseFloat(item.discountPercent) || 0;
+    if (discountPercent > 0) {
+      recalculateEditItemTotals(item);
+      return;
+    }
+
+    const quantity = parseFloat(item.quantity) || 0;
+    const price = parseFloat(item.price) || 0;
+    item.grossTotal = quantity * price;
+    item.discountPercent = 0;
+    item.discountAmount = 0;
+    item.total = parseFloat(item.total) || item.grossTotal;
+  });
+}
+
+function recalculateEditItemTotals(item) {
+  const quantity = parseFloat(item.quantity) || 0;
+  const price = parseFloat(item.price) || 0;
+  const discountPercent = Math.min(Math.max(parseFloat(item.discountPercent) || 0, 0), 100);
+  const grossTotal = quantity * price;
+  const discountAmount = grossTotal * (discountPercent / 100);
+
+  item.grossTotal = grossTotal;
+  item.discountPercent = discountPercent;
+  item.discountAmount = discountAmount;
+  item.total = Math.max(grossTotal - discountAmount, 0);
+}
+
+function unlockEditOrderDiscount() {
+  const password = prompt('أدخل كلمة السر لإضافة الخصم');
+  if (password === null) return;
+
+  if (convertToEnglishNumbers(password).trim() !== EDIT_ORDER_DISCOUNT_PASSWORD) {
+    showToast('كلمة السر غير صحيحة', true);
+    return;
+  }
+
+  editOrderDiscountUnlocked = true;
+  showToast('تم فتح إضافة الخصم');
+  renderEditProducts();
+}
+
+function updateEditDiscountPercentDraft(value) {
+  editOrderDiscountPercentDraft = normalizeDiscountPercentageInput(value);
+  const input = document.getElementById('editDiscountPercent');
+  if (input) input.value = editOrderDiscountPercentDraft;
+}
+
+function toggleEditDiscountSelection(index, checked) {
+  const selected = new Set(editOrderDiscountSelectedIndexes);
+  if (checked) {
+    selected.add(index);
+  } else {
+    selected.delete(index);
+  }
+  editOrderDiscountSelectedIndexes = Array.from(selected).sort((a, b) => a - b);
+  renderEditProducts();
+}
+
+function selectAllEditDiscountItems() {
+  editOrderDiscountSelectedIndexes = currentEditingOrder.items.map((_, index) => index);
+  renderEditProducts();
+}
+
+function applyEditDiscount() {
+  if (!editOrderDiscountUnlocked) {
+    unlockEditOrderDiscount();
+    return;
+  }
+
+  if (editOrderDiscountSelectedIndexes.length === 0) {
+    showToast('اختر صنف واحد على الأقل لتطبيق الخصم', true);
+    return;
+  }
+
+  const discountPercent = parseFloat(editOrderDiscountPercentDraft);
+  if (isNaN(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    showToast('أدخل نسبة خصم صحيحة من 0 إلى 100', true);
+    return;
+  }
+
+  editOrderDiscountSelectedIndexes.forEach(index => {
+    const item = currentEditingOrder.items[index];
+    if (!item) return;
+    item.discountPercent = discountPercent;
+    recalculateEditItemTotals(item);
+  });
+
+  renderEditProducts();
+  showToast('تم تطبيق الخصم على الأصناف المحددة');
+}
+
+function removeEditItemDiscount(index) {
+  const item = currentEditingOrder.items[index];
+  if (!item) return;
+
+  item.discountPercent = 0;
+  item.discountAmount = 0;
+  recalculateEditItemTotals(item);
+  renderEditProducts();
+}
+
 // عرض المنتجات للتعديل
 function renderEditProducts() {
   const container = document.getElementById('editProductsList');
+  if (!currentEditingOrder) return;
+  
+  const itemsSubtotal = getOrderItemsGrossTotal(currentEditingOrder);
+  const discountTotal = getOrderDiscountTotal(currentEditingOrder);
+  const itemsNetTotal = getOrderItemsNetTotal(currentEditingOrder);
+  const deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee')?.value || currentEditingOrder.deliveryPrice || 0)) || 0;
+  const selectedItemsCount = editOrderDiscountSelectedIndexes.length;
+  const discountControlsHtml = `
+    <div class="mb-4 p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+      <div class="flex flex-wrap gap-3 items-center justify-between">
+        <div>
+          <div class="font-bold text-yellow-800">خصم الأصناف</div>
+          <div class="text-sm text-yellow-700">يتم تطبيق الخصم على الأصناف المحددة فقط، ولا يشمل رسوم التوصيل.</div>
+        </div>
+        <button onclick="${editOrderDiscountUnlocked ? 'selectAllEditDiscountItems()' : 'unlockEditOrderDiscount()'}" class="${editOrderDiscountUnlocked ? 'bg-blue-600 hover:bg-blue-700' : 'bg-yellow-600 hover:bg-yellow-700'} text-white px-4 py-2 rounded-lg font-bold transition">
+          ${editOrderDiscountUnlocked ? 'تحديد الكل' : 'إضافة خصم'}
+        </button>
+      </div>
+      ${editOrderDiscountUnlocked ? `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-4">
+          <div>
+            <label class="block text-sm font-bold mb-1 text-gray-700">نسبة الخصم %</label>
+            <input type="text" id="editDiscountPercent" value="${editOrderDiscountPercentDraft}" oninput="updateEditDiscountPercentDraft(this.value)" class="w-full p-3 border-2 border-yellow-300 rounded-lg focus:border-yellow-600 focus:outline-none" placeholder="0">
+          </div>
+          <div class="text-sm text-gray-600">المحدد: <strong>${selectedItemsCount}</strong> من ${currentEditingOrder.items.length}</div>
+          <button onclick="applyEditDiscount()" class="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-bold">تطبيق</button>
+        </div>
+      ` : ''}
+    </div>
+  `;
   
   let html = `
+    ${discountControlsHtml}
     <div class="space-y-3">
       ${currentEditingOrder.items.map((item, index) => `
         <div class="flex gap-2 items-center bg-gray-50 p-3 rounded-lg">
-          <span class="flex-1 font-bold">${item.productName}</span>
+          ${editOrderDiscountUnlocked ? `<input type="checkbox" ${editOrderDiscountSelectedIndexes.includes(index) ? 'checked' : ''} onchange="toggleEditDiscountSelection(${index}, this.checked)" class="w-5 h-5 accent-yellow-600">` : ''}
+          <div class="flex-1 min-w-0">
+            <div class="font-bold">${item.productName}</div>
+            ${getItemDiscountAmount(item) > 0 ? `
+              <div class="text-sm text-red-600">
+                خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك
+                <button onclick="removeEditItemDiscount(${index})" class="mr-2 text-xs text-red-700 underline">إلغاء الخصم</button>
+              </div>
+            ` : ''}
+          </div>
           <input type="number" value="${item.quantity}" onchange="updateEditProduct(${index}, 'quantity', this.value)" class="w-20 p-2 border rounded-lg" step="0.001">
           <select onchange="updateEditProduct(${index}, 'unit', this.value)" class="p-2 border rounded-lg">
             <option value="حبة" ${item.unit === 'حبة' ? 'selected' : ''}>حبة</option>
@@ -8510,7 +8762,7 @@ function renderEditProducts() {
             <option value="كيلو" ${item.unit === 'كيلو' ? 'selected' : ''}>كيلو</option>
           </select>
           <input type="number" value="${item.price}" onchange="updateEditProduct(${index}, 'price', this.value)" class="w-24 p-2 border rounded-lg" step="0.001">
-          <span class="font-bold text-blue-600 w-24 text-center">${(item.total || 0).toFixed(3)} د.ك</span>
+          <span class="font-bold text-blue-600 w-24 text-center">${formatNumberWithThreeDecimals(item.total)} د.ك</span>
           <button onclick="removeEditProduct(${index})" class="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700">حذف</button>
         </div>
       `).join('')}
@@ -8550,8 +8802,28 @@ function renderEditProducts() {
       </div>
     </div>
     
-    <div class="mt-4 p-4 bg-blue-50 rounded-lg">
-      <div class="flex justify-between text-lg font-bold">
+    <div class="mt-4 p-4 bg-blue-50 rounded-lg space-y-2">
+      <div class="flex justify-between font-bold">
+        <span>مجموع الأصناف:</span>
+        <span class="text-blue-600">${itemsSubtotal.toFixed(3)} د.ك</span>
+      </div>
+      ${discountTotal > 0 ? `
+        <div class="flex justify-between font-bold text-red-600">
+          <span>المبلغ المخصوم:</span>
+          <span>-${discountTotal.toFixed(3)} د.ك</span>
+        </div>
+      ` : ''}
+      <div class="flex justify-between font-bold">
+        <span>صافي الأصناف:</span>
+        <span class="text-blue-600">${itemsNetTotal.toFixed(3)} د.ك</span>
+      </div>
+      ${deliveryFee > 0 ? `
+        <div class="flex justify-between font-bold">
+          <span>رسوم التوصيل:</span>
+          <span class="text-blue-600">${deliveryFee.toFixed(3)} د.ك</span>
+        </div>
+      ` : ''}
+      <div class="flex justify-between text-lg font-bold border-t-2 border-blue-200 pt-2">
         <span>الإجمالي:</span>
         <span class="text-blue-600">${calculateEditTotal().toFixed(3)} د.ك</span>
       </div>
@@ -8564,8 +8836,8 @@ function renderEditProducts() {
 // تحديث منتج
 function updateEditProduct(index, field, value) {
   if (field === 'quantity' || field === 'price') {
-    currentEditingOrder.items[index][field] = parseFloat(value) || 0;
-    currentEditingOrder.items[index].total = currentEditingOrder.items[index].quantity * currentEditingOrder.items[index].price;
+    currentEditingOrder.items[index][field] = parseFloat(normalizeDecimalInput(value)) || 0;
+    recalculateEditItemTotals(currentEditingOrder.items[index]);
   } else {
     currentEditingOrder.items[index][field] = value;
   }
@@ -8579,6 +8851,9 @@ function removeEditProduct(index) {
     return;
   }
   currentEditingOrder.items.splice(index, 1);
+  editOrderDiscountSelectedIndexes = editOrderDiscountSelectedIndexes
+    .filter(selectedIndex => selectedIndex !== index)
+    .map(selectedIndex => selectedIndex > index ? selectedIndex - 1 : selectedIndex);
   renderEditProducts();
 }
 
@@ -8599,6 +8874,9 @@ function addEditProduct() {
     quantity: qty,
     unit: unit,
     price: price,
+    grossTotal: qty * price,
+    discountPercent: 0,
+    discountAmount: 0,
     total: qty * price
   };
   
@@ -8614,8 +8892,8 @@ function addEditProduct() {
 
 // حساب الإجمالي
 function calculateEditTotal() {
-  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (item.total || 0), 0);
-  const deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
+  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+  const deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee').value)) || 0;
   return itemsTotal + deliveryFee;
 }
 
@@ -8626,8 +8904,12 @@ async function saveOrderEdit() {
   currentEditingOrder.customerName = document.getElementById('editCustomerName').value.trim();
   currentEditingOrder.phoneNumber = document.getElementById('editPhoneNumber').value.trim();
   currentEditingOrder.address = document.getElementById('editAddress').value.trim();
-  currentEditingOrder.deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
+  currentEditingOrder.deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee').value)) || 0;
   currentEditingOrder.deliveryPrice = currentEditingOrder.deliveryFee;
+  currentEditingOrder.items.forEach(recalculateEditItemTotals);
+  currentEditingOrder.itemsSubtotal = getOrderItemsGrossTotal(currentEditingOrder);
+  currentEditingOrder.discountTotal = getOrderDiscountTotal(currentEditingOrder);
+  currentEditingOrder.itemsNetTotal = getOrderItemsNetTotal(currentEditingOrder);
   currentEditingOrder.total = calculateEditTotal();
 
   // 2. التحقق من صحة البيانات
@@ -8665,6 +8947,9 @@ async function saveOrderEdit() {
 function closeEditOrderModal() {
   document.getElementById('editOrderModal').style.display = 'none';
   currentEditingOrder = null;
+  editOrderDiscountUnlocked = false;
+  editOrderDiscountSelectedIndexes = [];
+  editOrderDiscountPercentDraft = '';
 }
 
 let currentEditingOrder = null;
@@ -8760,6 +9045,9 @@ function addSelectedProduct() {
     quantity: qty,
     unit: unit,
     price: price,
+    grossTotal: qty * price,
+    discountPercent: 0,
+    discountAmount: 0,
     total: qty * price
   };
   
@@ -8803,7 +9091,7 @@ function addSelectedProduct() {
           </div>
           <div>
             <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">رسوم التوصيل (د.ك)</label>
-            <input type="number" id="editDeliveryFee" step="0.001" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;" onchange="renderEditProducts()">
+            <input type="text" id="editDeliveryFee" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;" oninput="this.value = normalizeDecimalInput(this.value)" onchange="renderEditProducts()">
           </div>
         </div>
       </div>
