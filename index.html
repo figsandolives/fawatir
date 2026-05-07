@@ -150,6 +150,49 @@
       z-index: 999;
       overflow-y: auto;
     }
+
+    .voice-page {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1001;
+      overflow-y: auto;
+      background: radial-gradient(circle at top, #e0f2fe 0%, #f8fafc 48%, #eef2ff 100%);
+    }
+
+    .voice-mic-button {
+      width: 150px;
+      height: 150px;
+      border-radius: 9999px;
+      border: none;
+      color: white;
+      font-size: 56px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      box-shadow: 0 22px 45px rgba(37, 99, 235, 0.28);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .voice-mic-button.listening {
+      background: linear-gradient(135deg, #dc2626, #f97316);
+      animation: voicePulse 1.3s infinite;
+    }
+
+    .voice-mic-button:hover {
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 28px 55px rgba(37, 99, 235, 0.35);
+    }
+
+    @keyframes voicePulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.38), 0 22px 45px rgba(220, 38, 38, 0.24);
+      }
+      50% {
+        box-shadow: 0 0 0 22px rgba(220, 38, 38, 0), 0 22px 45px rgba(220, 38, 38, 0.24);
+      }
+    }
     
     
     .thermal-invoice {
@@ -167,64 +210,6 @@
       padding: 4px;
       border: 1px solid #ccc;
       border-radius: 4px;
-    }
-
-    .invoice-product-toolbar {
-      display: flex;
-      align-items: stretch;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .invoice-product-search {
-      flex: 1;
-      min-width: 0;
-      margin-bottom: 0;
-    }
-
-    .invoice-total-box {
-      min-width: 150px;
-      min-height: 54px;
-      background: white;
-      border: 2px solid #bfdbfe;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
-      display: flex;
-      align-items: baseline;
-      justify-content: center;
-      gap: 6px;
-      direction: ltr;
-      padding: 8px 14px;
-      margin-inline-start: auto;
-      white-space: nowrap;
-    }
-
-    .invoice-total-box.hidden {
-      display: none;
-    }
-
-    .invoice-total-value {
-      color: #2563eb;
-      font-size: 28px;
-      font-weight: 800;
-      line-height: 1;
-    }
-
-    .invoice-total-currency {
-      color: #64748b;
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1;
-    }
-
-    @media (max-width: 768px) {
-      .invoice-product-toolbar {
-        flex-direction: column-reverse;
-      }
-
-      .invoice-total-box {
-        align-self: flex-end;
-      }
     }
   </style>
   <style>@view-transition { navigation: auto; }</style>
@@ -269,14 +254,27 @@
     let allCustomers = [];
     let allOrders = [];
     let allCashiers = [];
+    let allRegisteredDevices = [];
+    let lastDeviceHeartbeatAt = 0;
     let currentCashier = null;
     let currentBranch = null;
     let currentOrder = {
       items: [],
       customer: null,
       deliveryPrice: 0,
-      orderType: null // 'delivery' or 'pickup'
+	      orderType: '',
+	      paymentMethod: '',
+	      selectedAddress: null,
+	      pickupBranch: '',
+	      discountType: 'none',
+      discountValue: 0,
+      discountAmount: 0
     };
+    let voiceInvoiceRecognition = null;
+    let voiceInvoiceIsListening = false;
+    let voiceInvoiceIsAnalyzing = false;
+    let voiceInvoiceFinalTranscript = '';
+    let voiceInvoiceInterimTranscript = '';
     let selectedProductsForCategory = [];
     let salesReportSearchTerm = '';
     let salesReportSelectedProductId = '';
@@ -337,22 +335,19 @@
     };
     let editingTransferVoucherId = '';
     let editingPurchaseVoucherId = '';
-    const EDIT_ORDER_DISCOUNT_PASSWORD = '54321';
-    let editOrderDiscountUnlocked = false;
-    let editOrderDiscountSelectedIndexes = [];
-    let editOrderDiscountPercentDraft = '';
     let isIssueVoucherModalOpen = false;
     let isTransferVoucherModalOpen = false;
     let isPurchaseVoucherModalOpen = false;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
-    const INVENTORY_BRANCHES = [
-      { id: 'main', name: 'الفرع الرئيسي' },
-      { id: 'yarmouk', name: 'فرع اليرموك' },
-      { id: 'abu_hasaniya', name: 'فرع أبو الحصانية' },
-      { id: 'main_warehouse', name: 'المخزن الرئيسي' }
-    ];
+	    const INVENTORY_BRANCHES = [
+	      { id: 'main', name: 'الفرع الرئيسي' },
+	      { id: 'yarmouk', name: 'فرع اليرموك' },
+	      { id: 'abu_hasaniya', name: 'فرع أبو الحصانية' },
+	      { id: 'main_warehouse', name: 'المخزن الرئيسي' }
+	    ];
+	    const PICKUP_BRANCHES = ['الفرع الرئيسي', 'اليرموك', 'أبو الحصانية', 'المخزن الرئيسي'];
 
     // Helper Functions
     function generateId() {
@@ -382,6 +377,15 @@
       setTimeout(() => {
         toast.remove();
       }, 3000);
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
 
     function normalizeText(value) {
@@ -589,12 +593,10 @@
     function convertToEnglishNumbers(str) {
       str = (str === undefined || str === null) ? '' : String(str);
       const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-      const persianNumbers = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
       const englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
       
       for (let i = 0; i < 10; i++) {
         str = str.replace(new RegExp(arabicNumbers[i], 'g'), englishNumbers[i]);
-        str = str.replace(new RegExp(persianNumbers[i], 'g'), englishNumbers[i]);
       }
       
       return str;
@@ -613,54 +615,6 @@
       }
 
       return normalized;
-    }
-
-    function normalizeDiscountPercentageInput(value) {
-      return normalizeDecimalInput(value);
-    }
-
-    function getOrderDeliveryFee(order) {
-      return parseFloat(order?.deliveryFee ?? order?.deliveryPrice ?? 0) || 0;
-    }
-
-    function getItemGrossTotal(item) {
-      const quantity = parseFloat(item?.quantity) || 0;
-      const price = parseFloat(item?.price) || 0;
-      const grossFromPrice = quantity * price;
-      const storedGross = parseFloat(item?.grossTotal);
-      if (!isNaN(storedGross) && storedGross > 0) return storedGross;
-      return grossFromPrice;
-    }
-
-    function getItemDiscountAmount(item) {
-      const storedDiscount = parseFloat(item?.discountAmount);
-      if (!isNaN(storedDiscount) && storedDiscount > 0) return storedDiscount;
-
-      const discountPercent = parseFloat(item?.discountPercent) || 0;
-      if (discountPercent <= 0) return 0;
-
-      return getItemGrossTotal(item) * (discountPercent / 100);
-    }
-
-    function getOrderItemsGrossTotal(order) {
-      return (order?.items || []).reduce((sum, item) => sum + getItemGrossTotal(item), 0);
-    }
-
-    function getOrderDiscountTotal(order) {
-      const itemsDiscountTotal = (order?.items || []).reduce((sum, item) => sum + getItemDiscountAmount(item), 0);
-      if (itemsDiscountTotal > 0) return itemsDiscountTotal;
-
-      const storedDiscount = parseFloat(order?.discountTotal);
-      if (!isNaN(storedDiscount) && storedDiscount > 0) return storedDiscount;
-      return 0;
-    }
-
-    function getOrderItemsNetTotal(order) {
-      return (order?.items || []).reduce((sum, item) => sum + (parseFloat(item?.total) || 0), 0);
-    }
-
-    function getOrderGrandTotal(order) {
-      return getOrderItemsNetTotal(order) + getOrderDeliveryFee(order);
     }
 
     function getInventoryBranchName(branchId) {
@@ -838,6 +792,12 @@ function setupRealtimeListeners() {
   // 3. مراقبة المنتجات
   db.ref('products').on('value', (snapshot) => {
     allProducts = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 4. مراقبة الأجهزة المعرفة وفروعها لاستخدامها في التعرف على أقرب فرع لنسخة الهاتف
+  db.ref('registeredDevices').on('value', (snapshot) => {
+    allRegisteredDevices = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
     refreshUI();
   });
 
@@ -1262,9 +1222,11 @@ function refreshUI() {
             <div class="max-w-6xl mx-auto">
               <div class="flex justify-between items-center mb-6">
                 <h2 class="text-3xl font-bold text-gray-800">الطلبات</h2>
-                <button onclick="showNewInvoicePage()" class="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition">
-                  ➕ فاتورة جديدة
-                </button>
+                <div class="flex gap-3">
+	                  <button onclick="showNewInvoicePage()" class="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition">
+	                    ➕ فاتورة جديدة
+	                  </button>
+                </div>
               </div>
               
               <div class="bg-white rounded-xl shadow-lg p-6">
@@ -1305,14 +1267,729 @@ function refreshUI() {
         </div>
       `;
     }
-    
-    function showNewInvoicePage() {
-      currentOrder = {
+
+    function createEmptyOrder() {
+      return {
         items: [],
         customer: null,
-        deliveryPrice: 0,
-        orderType: null
+	        deliveryPrice: 0,
+	        orderType: '',
+	        paymentMethod: '',
+	        selectedAddress: null,
+	        pickupBranch: '',
+	        discountType: 'none',
+        discountValue: 0,
+        discountAmount: 0
       };
+    }
+
+    function openVoiceInvoicePage() {
+      closeVoiceInvoicePage();
+      voiceInvoiceFinalTranscript = '';
+      voiceInvoiceInterimTranscript = '';
+      voiceInvoiceIsListening = false;
+      voiceInvoiceIsAnalyzing = false;
+
+      const page = document.createElement('div');
+      page.className = 'voice-page';
+      page.id = 'voiceInvoicePage';
+      page.innerHTML = `
+        <div class="min-h-full flex flex-col">
+          <div class="bg-blue-700 text-white p-4 flex justify-between items-center shadow-lg">
+            <h2 class="text-2xl font-bold">إنشاء فاتورة Ai</h2>
+            <button onclick="closeVoiceInvoicePage()" class="bg-white text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 transition">رجوع</button>
+          </div>
+
+          <div class="flex-1 flex items-center justify-center p-6">
+            <div class="w-full max-w-4xl bg-white rounded-3xl shadow-2xl p-8 text-center">
+              <div class="text-gray-600 mb-2">اضغط المايك للتحدث، أو اكتب الطلب ثم اضغط إرسال</div>
+              <button id="voiceInvoiceMicBtn" onclick="toggleVoiceInvoiceMic()" class="voice-mic-button" type="button">🎙️</button>
+              <div id="voiceInvoiceStatus" class="mt-5 text-lg font-bold text-blue-700">المايك مغلق. اضغط زر المايك في الوسط لبدء التسجيل.</div>
+
+              <div class="mt-8 text-right">
+                <div class="font-bold text-gray-800 mb-2">الكلام المسجل:</div>
+                <div id="voiceInvoiceTranscript" class="min-h-32 bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-xl leading-10 text-gray-800">
+                  <span class="text-gray-400">سيظهر الكلام هنا أثناء التحدث...</span>
+                </div>
+              </div>
+
+              <div class="mt-5 text-right">
+                <label for="voiceInvoiceManualInput" class="font-bold text-gray-800 mb-2 block">أو اكتب الطلب هنا:</label>
+                <textarea id="voiceInvoiceManualInput" rows="4" class="w-full bg-white border-2 border-blue-100 rounded-2xl p-4 text-xl leading-10 text-gray-800 focus:border-blue-500 focus:outline-none" placeholder="اكتب اسم العميل، الهاتف، العنوان، المنتجات، طريقة الدفع وسعر التوصيل"></textarea>
+                <button onclick="submitVoiceInvoiceCommand()" class="mt-3 bg-blue-600 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-blue-700 transition" type="button">إرسال وتحليل الطلب</button>
+              </div>
+
+              <div id="voiceInvoiceAnalysis" class="mt-5 text-right bg-blue-50 border border-blue-100 rounded-2xl p-4 text-gray-700">
+                اكتب الطلب كاملًا أو اضغط المايك وابدأ بالتحدث.
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(page);
+      updateVoiceInvoiceMicButton();
+    }
+
+    function closeVoiceInvoicePage() {
+      stopVoiceInvoiceListening(false);
+      const page = document.getElementById('voiceInvoicePage');
+      if (page) page.remove();
+    }
+
+    function getVoiceRecognitionConstructor() {
+      return window.SpeechRecognition || window.webkitSpeechRecognition;
+    }
+
+    function setVoiceInvoiceStatus(message, isError = false) {
+      const status = document.getElementById('voiceInvoiceStatus');
+      if (!status) return;
+      status.textContent = message;
+      status.className = `mt-5 text-lg font-bold ${isError ? 'text-red-600' : 'text-blue-700'}`;
+    }
+
+    function updateVoiceInvoiceMicButton() {
+      const button = document.getElementById('voiceInvoiceMicBtn');
+      if (!button) return;
+      button.className = `voice-mic-button ${voiceInvoiceIsListening ? 'listening' : ''}`;
+      button.textContent = voiceInvoiceIsListening ? '⏹' : '🎙️';
+    }
+
+    function updateVoiceInvoiceTranscriptDisplay() {
+      const transcriptEl = document.getElementById('voiceInvoiceTranscript');
+      if (!transcriptEl) return;
+      const finalText = voiceInvoiceFinalTranscript.trim();
+      const interimText = voiceInvoiceInterimTranscript.trim();
+      if (!finalText && !interimText) {
+        transcriptEl.innerHTML = '<span class="text-gray-400">سيظهر الكلام هنا أثناء التحدث...</span>';
+        return;
+      }
+      transcriptEl.innerHTML = `${escapeHtml(finalText)} ${interimText ? `<span class="text-gray-400">${escapeHtml(interimText)}</span>` : ''}`;
+    }
+
+    function startVoiceInvoiceListening() {
+      const Recognition = getVoiceRecognitionConstructor();
+      if (!Recognition) {
+        setVoiceInvoiceStatus('المتصفح لا يدعم التعرف على الصوت. جرب Chrome على نفس الجهاز.', true);
+        updateVoiceInvoiceMicButton();
+        return;
+      }
+
+      if (!voiceInvoiceRecognition) {
+        voiceInvoiceRecognition = new Recognition();
+        voiceInvoiceRecognition.lang = 'ar-KW';
+        voiceInvoiceRecognition.continuous = true;
+        voiceInvoiceRecognition.interimResults = true;
+
+        voiceInvoiceRecognition.onresult = (event) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              voiceInvoiceFinalTranscript += `${transcript} `;
+            } else {
+              interim += transcript;
+            }
+          }
+          voiceInvoiceInterimTranscript = interim;
+          updateVoiceInvoiceTranscriptDisplay();
+        };
+
+        voiceInvoiceRecognition.onerror = (event) => {
+          const message = event.error === 'not-allowed'
+            ? 'لم يتم السماح باستخدام المايك.'
+            : `حدث خطأ في المايك: ${event.error}`;
+          setVoiceInvoiceStatus(message, true);
+        };
+
+        voiceInvoiceRecognition.onend = () => {
+          if (voiceInvoiceIsListening && !voiceInvoiceIsAnalyzing) {
+            setTimeout(() => {
+              try {
+                voiceInvoiceRecognition.start();
+              } catch (error) {
+                console.warn('Voice recognition restart skipped:', error);
+              }
+            }, 250);
+          }
+        };
+      }
+
+      try {
+        voiceInvoiceIsListening = true;
+        voiceInvoiceIsAnalyzing = false;
+        voiceInvoiceRecognition.start();
+        setVoiceInvoiceStatus('المايك مفتوح، تكلم الآن...');
+      } catch (error) {
+        console.warn('Voice recognition start skipped:', error);
+      }
+      updateVoiceInvoiceMicButton();
+    }
+
+    function stopVoiceInvoiceListening(shouldAnalyze = true) {
+      voiceInvoiceIsListening = false;
+      updateVoiceInvoiceMicButton();
+      if (voiceInvoiceRecognition) {
+        try {
+          voiceInvoiceRecognition.stop();
+        } catch (error) {
+          console.warn('Voice recognition stop skipped:', error);
+        }
+      }
+      if (shouldAnalyze) analyzeVoiceInvoiceCommand();
+    }
+
+    function toggleVoiceInvoiceMic() {
+      if (voiceInvoiceIsListening) {
+        stopVoiceInvoiceListening(true);
+      } else {
+        startVoiceInvoiceListening();
+      }
+    }
+
+    function submitVoiceInvoiceCommand() {
+      if (voiceInvoiceIsListening) {
+        stopVoiceInvoiceListening(false);
+      }
+      analyzeVoiceInvoiceCommand();
+    }
+
+    function normalizeVoiceText(value) {
+      return convertToEnglishNumbers(value || '')
+        .toString()
+        .toLowerCase()
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/[ئ]/g, 'ي')
+        .replace(/[ؤ]/g, 'و')
+        .replace(/[ة]/g, 'ه')
+        .replace(/[ى]/g, 'ي')
+        .replace(/[ًٌٍَُِّْـ]/g, '')
+        .replace(/(?:بيتي|بتي|بيت)\s*فور/g, 'بيتفور')
+        .replace(/شيكولاته|شكولاته|شوكلاته/g, 'شوكولاته')
+        .replace(/[^\u0600-\u06FFa-z0-9.\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function extractVoicePhone(text) {
+      const converted = convertToEnglishNumbers(text || '');
+      const phonePattern = /(?:رقم(?:ه|ها)?|هاتف(?:ه|ها)?|تلفون(?:ه|ها)?|تليفون(?:ه|ها)?|موبايل(?:ه|ها)?|نقال(?:ه|ها)?)[^\d]*(\+?965[\s-]*)?([0-9\s-]{8,})/i;
+      const phoneMatch = converted.match(phonePattern);
+      let digits = phoneMatch ? `${phoneMatch[1] || ''}${phoneMatch[2] || ''}`.replace(/\D/g, '') : '';
+      if (!digits) {
+        const phoneCandidates = Array.from(converted.matchAll(/(?:^|[^\d])(\+?965[\s-]*)?([0-9][0-9\s-]{6,}[0-9])(?=$|[^\d])/g))
+          .map(match => `${match[1] || ''}${match[2] || ''}`.replace(/\D/g, ''))
+          .map(candidate => candidate.startsWith('965') && candidate.length >= 11 ? candidate.slice(0, 11) : candidate)
+          .filter(candidate => candidate.length === 8 || (candidate.startsWith('965') && candidate.length === 11));
+        digits = phoneCandidates[0] || '';
+      }
+      if (!digits) {
+        const allDigits = converted.replace(/\D/g, '');
+        if (allDigits.length === 8 || (allDigits.startsWith('965') && allDigits.length === 11)) digits = allDigits;
+      }
+      if (digits.startsWith('965') && digits.length >= 11) digits = digits.slice(3, 11);
+      else if (digits.length > 8) digits = digits.slice(-8);
+      if (digits.length !== 8) return null;
+      return {
+        local: digits,
+        full: `965${digits}`
+      };
+    }
+
+    function getVoiceCustomerStopWordsPattern() {
+      return [
+        'رقم\\s*(?:الهاتف|هاتف|التلفون|تلفون|التليفون|تليفون|الجوال|جوال|الموبايل|موبايل|النقال|نقال|العميل|الزبون)?',
+        'هاتف(?:ه|ها)?',
+        'تلفون(?:ه|ها)?',
+        'تليفون(?:ه|ها)?',
+        'جوال(?:ه|ها)?',
+        'موبايل(?:ه|ها)?',
+        'نقال(?:ه|ها)?',
+        'عنوان(?:ه|ها)?',
+        'العنوان',
+        'منطقه',
+        'منطقة',
+        'والمنتجات',
+        'المنتجات',
+        'الاصناف',
+        'الأصناف',
+        'يريد',
+        'يبي',
+        'يبى',
+        'الدفع',
+        'طريقة الدفع',
+        '(?:سعر|رسوم|قيمه|قيمة|اجره|اجرة)\\s*(?:التوصيل|توصيل|الدليفري|دليفري)'
+      ].join('|');
+    }
+
+    function cleanVoiceCustomerNameCandidate(value) {
+      const stopWords = getVoiceCustomerStopWordsPattern();
+      return convertToEnglishNumbers(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(new RegExp(`\\s*(?:${stopWords})[\\s:：\\-]*(?:\\+?965[\\s-]*)?[0-9\\s-]{0,14}.*$`, 'i'), '')
+        .replace(/\s*(?:\+?965[\s-]*)?[0-9][0-9\s-]{7,}.*$/, '')
+        .replace(/^باسم\s+/i, '')
+        .trim();
+    }
+
+    function extractVoiceCustomerName(text) {
+      const clean = (text || '').replace(/\s+/g, ' ').trim();
+      const stopWords = getVoiceCustomerStopWordsPattern();
+      const patterns = [
+        new RegExp(`(?:باسم|اسم العميل|للعميل|لعميل|عميل اسمه)\\s+(.+?)(?=\\s+(?:${stopWords})|\\s+(?:\\+?965[\\s-]*)?[0-9][0-9\\s-]{7,}|$)`, 'i'),
+        new RegExp(`(?:انشئ|اعمل|سوي|سو)\\s+فاتوره\\s+(.+?)(?=\\s+(?:${stopWords})|\\s+(?:\\+?965[\\s-]*)?[0-9][0-9\\s-]{7,}|$)`, 'i')
+      ];
+      for (const pattern of patterns) {
+        const match = clean.match(pattern);
+        if (match && match[1]) return cleanVoiceCustomerNameCandidate(match[1]);
+      }
+      return '';
+    }
+
+    function getVoiceDeliveryStopPattern() {
+      return '(?:(?:سعر|رسوم|قيمه|قيمة|اجره|اجرة)\\s*)?(?:التوصيل|توصيل|الدليفري|دليفري)';
+    }
+
+    function stripVoiceDeliveryPriceFromText(value) {
+      const deliveryStop = getVoiceDeliveryStopPattern();
+      return (value || '')
+        .replace(new RegExp(`\\s*${deliveryStop}\\s*(?:هو|هي|ب|بـ|بسعر|=|:)?\\s*(?:[0-9٠-٩۰-۹]+(?:[\\.,][0-9٠-٩۰-۹]+)?|دينارين|دينار|واحده|واحد|ثنتين|اثنين|ثنين|نص|نصف|ربع|ثلاثه|اربعه|خمسه|سته|سبعه|ثمانيه|تسعه|عشره).*$`, 'i'), '')
+        .trim();
+    }
+
+    function getVoiceAddressSection(text) {
+      const clean = (text || '').replace(/\s+/g, ' ').trim();
+      const deliveryStop = getVoiceDeliveryStopPattern();
+      const addressStop = new RegExp(`(?:عنوان(?:ه|ها)?|العنوان|منطقه|منطقة|التوصيل الي|توصيل الي)\\s*[:：\\-]?\\s+(.+?)(?=\\s+(?:والمنتجات|المنتجات|يريد|يبي|يبى|وطلب|الدفع|طريقة الدفع|كاش|كي|اونلاين|أونلاين|${deliveryStop})|$)`, 'i');
+      const addressMatch = clean.match(addressStop);
+      return stripVoiceDeliveryPriceFromText(addressMatch ? addressMatch[1].trim() : '');
+    }
+
+    function isVoicePickupAddress(text) {
+      const normalized = normalizeVoiceText(getVoiceAddressSection(text));
+      return /^(استلام|استلم|استلام من الفرع|استلام فرع|استلام بالمحل|بالمحل|من الفرع|بيك اب|بيكاب|pickup)(?:\s|$)/.test(normalized);
+    }
+
+    function extractVoiceOrderType(text, address = null) {
+      const normalized = normalizeVoiceText(text);
+      if (isVoicePickupAddress(text) || /(?:نوع الطلب|الطلب)\s*(?:استلام|بيك اب|بيكاب|pickup)/.test(normalized)) return 'pickup';
+      if (address || /(?:توصيل|دليفري|عنوان(?:ه|ها)?|العنوان|منطقه|منطقة)/.test(normalized)) return 'delivery';
+      return 'pickup';
+    }
+
+    function extractVoiceAddress(text) {
+      const clean = (text || '').replace(/\s+/g, ' ').trim();
+      if (isVoicePickupAddress(clean)) return null;
+      const areaFromKnownList = areas.find(area => normalizeVoiceText(clean).includes(normalizeVoiceText(area)));
+      const rawDetails = getVoiceAddressSection(clean);
+      const area = areaFromKnownList || rawDetails.split(' ')[0] || '';
+      const areaWordCount = normalizeVoiceText(area).split(' ').filter(Boolean).length;
+      let details = rawDetails;
+      if (area && details) {
+        const normalizedArea = normalizeVoiceText(area);
+        const normalizedDetails = normalizeVoiceText(details);
+        if (normalizedDetails === normalizedArea) {
+          details = '';
+        } else if (normalizedDetails.startsWith(`${normalizedArea} `)) {
+          details = details.split(/\s+/).slice(areaWordCount).join(' ').trim();
+        }
+      }
+      if (!area && !details) return null;
+      return {
+        area,
+        details
+      };
+    }
+
+    function parseVoiceMoneyAmount(value) {
+      const normalized = normalizeVoiceText(value);
+      const digitMatch = normalized.match(/\d+(?:\.\d+)?/);
+      if (digitMatch) return parseFloat(digitMatch[0]);
+      const wordValues = [
+        ['عشره', 10], ['تسعه', 9], ['ثمانيه', 8], ['سبعه', 7], ['سته', 6],
+        ['خمسه', 5], ['اربعه', 4], ['ثلاثه', 3], ['ثنتين', 2], ['اثنين', 2],
+        ['ثنين', 2], ['دينارين', 2], ['واحده', 1], ['واحد', 1], ['دينار', 1],
+        ['نصف', 0.5], ['نص', 0.5], ['ربع', 0.25]
+      ];
+      const found = wordValues.find(([word]) => normalized.includes(word));
+      return found ? found[1] : NaN;
+    }
+
+    function extractVoiceDeliveryPrice(text) {
+      const normalized = normalizeVoiceText(text);
+      const amountPattern = '([0-9]+(?:\\.[0-9]+)?|دينارين|دينار|واحده|واحد|ثنتين|اثنين|ثنين|نص|نصف|ربع|ثلاثه|اربعه|خمسه|سته|سبعه|ثمانيه|تسعه|عشره)';
+      const match = normalized.match(new RegExp(`(?:سعر|رسوم|قيمه|اجره)\\s*(?:التوصيل|توصيل|الدليفري|دليفري)\\s*(?:هو|هي|ب|بسعر)?\\s*${amountPattern}`))
+        || normalized.match(new RegExp(`(?:التوصيل|توصيل|الدليفري|دليفري)\\s*(?:ب|بسعر|سعره|قيمته)?\\s*${amountPattern}`))
+        || normalized.match(new RegExp(`${amountPattern}\\s*(?:دك|دينار|دنانير)?\\s*(?:توصيل|دليفري)`));
+      if (!match) return 0;
+      const deliveryPrice = parseVoiceMoneyAmount(match[1]);
+      return Number.isFinite(deliveryPrice) && deliveryPrice >= 0 ? parseFloat(deliveryPrice.toFixed(3)) : 0;
+    }
+
+    function extractVoicePaymentMethod(text) {
+      const normalized = normalizeVoiceText(text);
+      if (/(كي\s*نت|كي-نت|knet|كي نت)/i.test(normalized)) return 'knet';
+      if (/(اونلاين|online|رابط|لينك)/i.test(normalized)) return 'online';
+      if (/(كاش|نقد)/i.test(normalized)) return 'cash';
+      return 'cash';
+    }
+
+    function parseVoiceQuantity(value) {
+      const normalized = normalizeVoiceText(value);
+      const explicitDigitMatch = normalized.match(/(?:عدد|كميه|كمية|حبه|حبة|حبات)\s*(\d+(?:\.\d+)?)/);
+      if (explicitDigitMatch) return parseFloat(explicitDigitMatch[1]) || 1;
+      const startOrEndDigitMatch = normalized.match(/^(?:\d+(?:\.\d+)?)\s|(?:^|\s)(\d+(?:\.\d+)?)$/);
+      if (startOrEndDigitMatch) return parseFloat(startOrEndDigitMatch[1] || startOrEndDigitMatch[0]) || 1;
+      const wordNumbers = [
+        ['عشره', 10], ['تسعه', 9], ['ثمانيه', 8], ['سبعه', 7], ['سته', 6],
+        ['خمسه', 5], ['اربعه', 4], ['ثلاثه', 3], ['اثنين', 2], ['ثنين', 2],
+        ['واحد', 1], ['حبه', 1], ['حبتين', 2]
+      ];
+      const explicitWord = wordNumbers.find(([word]) =>
+        new RegExp(`(?:عدد|كميه|كمية|حبه|حبة|حبات)\\s+${word}(?:\\s|$)`).test(normalized)
+      );
+      if (explicitWord) return explicitWord[1];
+      const found = wordNumbers.find(([word]) =>
+        normalized === word || normalized.startsWith(`${word} `) || normalized.endsWith(` ${word}`)
+      );
+      return found ? found[1] : 1;
+    }
+
+    function hasVoiceProductsKeyword(text) {
+      const normalized = normalizeVoiceText(text || '');
+      return /(?:^|\s)(?:و?المنتجات|و?منتجات|و?الاصناف|و?اصناف)(?:\s|$)/.test(normalized);
+    }
+
+    function extractVoiceProductsPhrase(text) {
+      const clean = (text || '').toString().replace(/\r/g, '\n').trim();
+      if (!hasVoiceProductsKeyword(clean)) return '';
+      const stopPattern = '(?=\\s+(?:والدفع|الدفع|طريقة الدفع|كاش|كي\\s*نت|اونلاين|أونلاين|رابط|عنوان|العنوان|رقم|هاتف|سعر\\s+التوصيل)|$)';
+      const sectionMatch = clean.match(new RegExp(`(?:^|[\\s،,])(?:والمنتجات|المنتجات|منتجات|والاصناف|والأصناف|الاصناف|الأصناف|اصناف)\\s*[:：\\-]?\\s*([\\s\\S]+?)${stopPattern}`, 'i'));
+      return sectionMatch ? sectionMatch[1].trim() : '';
+    }
+
+    const voiceProductStopWords = new Set([
+      'عدد', 'كميه', 'كمية', 'حبه', 'حبة', 'حبات', 'واحد', 'اثنين', 'ثنين',
+      'ثلاثه', 'اربعه', 'خمسه', 'سته', 'سبعه', 'ثمانيه', 'تسعه', 'عشره',
+      'اريد', 'ابي', 'ابغى', 'يبي', 'يبى', 'طلب', 'اطلب', 'والمنتجات', 'المنتجات',
+      'درزن'
+    ]);
+
+    function getVoiceProductTokens(value) {
+      return normalizeVoiceText(value)
+        .split(' ')
+        .map(token => token.trim())
+        .filter(token => token.length > 1 && !/^\d+(?:\.\d+)?$/.test(token) && !voiceProductStopWords.has(token));
+    }
+
+    function getVoiceTokenDistance(a, b) {
+      if (a === b) return 0;
+      const rows = a.length + 1;
+      const cols = b.length + 1;
+      const dp = Array.from({ length: rows }, () => Array(cols).fill(0));
+      for (let i = 0; i < rows; i++) dp[i][0] = i;
+      for (let j = 0; j < cols; j++) dp[0][j] = j;
+      for (let i = 1; i < rows; i++) {
+        for (let j = 1; j < cols; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,
+            dp[i][j - 1] + 1,
+            dp[i - 1][j - 1] + cost
+          );
+        }
+      }
+      return dp[a.length][b.length];
+    }
+
+    function areVoiceTokensSimilar(a, b) {
+      if (!a || !b) return false;
+      if (a === b) return true;
+      if (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a))) return true;
+      return Math.max(a.length, b.length) >= 4 && getVoiceTokenDistance(a, b) <= 1;
+    }
+
+    function splitVoiceProductSegments(text) {
+      const rawProductsPhrase = extractVoiceProductsPhrase(text);
+      if (!rawProductsPhrase) return [];
+
+      const productsPhrase = rawProductsPhrase
+        .replace(/(\d+(?:\.\d+)?)\s+(?=(?:درزن|كوكيز|فطاير|فطائر|كيك|بيتزا|مشروب|عصير|سلطه|سلطة|صحن|طبق|علبه|علبة|ساندويتش|[ء-ي]{3,}\s+[ء-ي]{3,}))/g, '$1\n')
+        .replace(/(^|\s)(واحد|وحده|حبه|حبتين|اثنين|ثنين|ثنتين|ثلاثه|اربعه|خمسه|سته|سبعه|ثمانيه|تسعه|عشره)\s+(?=(?:درزن|كوكيز|فطاير|فطائر|كيك|بيتزا|مشروب|عصير|سلطه|سلطة|صحن|طبق|علبه|علبة|ساندويتش|[ء-ي]{3,}\s+[ء-ي]{3,}))/g, '$1$2\n');
+
+      return productsPhrase
+        .split(/\n+|،|,|\s+و\s+/)
+        .map(segment => segment.replace(/^(?:المنتجات|الاصناف|الأصناف|يريد|يبي|يبى|طلب|وطلب|ابي|ابغى)\s+/i, '').trim())
+        .filter(segment => {
+          const normalized = normalizeVoiceText(segment);
+          return normalized.length > 1 && !/^(الدفع|طريقة الدفع|كاش|كي نت|اونلاين|رابط)$/.test(normalized);
+        });
+    }
+
+    function extractVoiceQuantityFromSegment(segment) {
+      const normalized = normalizeVoiceText(segment);
+      const explicitQuantity = normalized.match(/(?:عدد|كميه|كمية|حبه|حبة|حبات)\s*(\d+(?:\.\d+)?)/);
+      if (explicitQuantity) return getSafeVoiceQuantity(explicitQuantity[1]);
+      const endQuantity = normalized.match(/(\d+(?:\.\d+)?)\s*$/);
+      if (endQuantity) return getSafeVoiceQuantity(endQuantity[1]);
+      const startQuantity = normalized.match(/^(\d+(?:\.\d+)?)\s+/);
+      if (startQuantity) return getSafeVoiceQuantity(startQuantity[1]);
+      return getSafeVoiceQuantity(parseVoiceQuantity(normalized));
+    }
+
+    function getSafeVoiceQuantity(value) {
+      const qty = parseFloat(value);
+      if (!Number.isFinite(qty) || qty <= 0) return 1;
+      return qty > 99 ? 1 : qty;
+    }
+
+    function scoreVoiceProductMatch(segment, product) {
+      const normalizedSegment = normalizeVoiceText(segment);
+      if (normalizedSegment.length < 2) return 0;
+      const productNames = [product.nameAr, product.nameEn].filter(Boolean).map(normalizeVoiceText).filter(Boolean);
+      const segmentTokens = getVoiceProductTokens(segment);
+      let bestScore = 0;
+      productNames.forEach(name => {
+        if (!name) return;
+        if (normalizedSegment.includes(name) || name.includes(normalizedSegment)) {
+          bestScore = Math.max(bestScore, 1);
+          return;
+        }
+        const nameWords = getVoiceProductTokens(name);
+        const productHits = nameWords.filter(nameWord =>
+          segmentTokens.some(segmentWord => areVoiceTokensSimilar(segmentWord, nameWord))
+        ).length;
+        const segmentHits = segmentTokens.filter(segmentWord =>
+          nameWords.some(nameWord => areVoiceTokensSimilar(segmentWord, nameWord))
+        ).length;
+        const productCoverage = nameWords.length ? productHits / nameWords.length : 0;
+        const segmentCoverage = segmentTokens.length ? segmentHits / segmentTokens.length : 0;
+        const segmentScore = segmentTokens.length >= 2 ? segmentCoverage * 0.95 : segmentCoverage * 0.45;
+        const score = Math.max(productCoverage, segmentScore);
+        bestScore = Math.max(bestScore, score);
+      });
+      return bestScore;
+    }
+
+    function extractVoiceProducts(text) {
+      const matches = [];
+      const matchedIds = new Set();
+      const unmatchedSegments = [];
+      const segments = splitVoiceProductSegments(text);
+
+      segments.forEach(segment => {
+        const rankedMatches = allProducts
+          .filter(product => !matchedIds.has(product.id))
+          .map(product => ({
+            product,
+            score: scoreVoiceProductMatch(segment, product),
+            tokenCount: getVoiceProductTokens(`${product.nameAr || ''} ${product.nameEn || ''}`).length,
+            nameLength: String(product.nameAr || product.nameEn || '').length
+          }))
+          .sort((a, b) => b.score - a.score || b.tokenCount - a.tokenCount || b.nameLength - a.nameLength);
+
+        const best = rankedMatches[0];
+        if (best && best.score >= 0.5) {
+          matchedIds.add(best.product.id);
+          matches.push({ product: best.product, quantity: extractVoiceQuantityFromSegment(segment) });
+        } else if (!/(منتجات|اصناف|الدفع|عنوان|رقم)/.test(normalizeVoiceText(segment))) {
+          unmatchedSegments.push(segment);
+        }
+      });
+
+      return { matches, unmatchedSegments };
+    }
+
+    function addVoiceProductToOrder(product, quantity) {
+      const qty = getSafeVoiceQuantity(quantity);
+      const existingItem = currentOrder.items.find(item => item.productId === product.id);
+      if (existingItem) {
+        existingItem.quantity += qty;
+        existingItem.total = existingItem.quantity * existingItem.price;
+      } else {
+        currentOrder.items.push({
+          productId: product.id,
+          productName: product.nameAr,
+          productNameEn: product.nameEn,
+          price: product.price,
+          quantity: qty,
+          unit: product.unit || '',
+          notes: '',
+          total: product.price * qty
+        });
+      }
+    }
+
+    function findCustomerByVoicePhone(phone) {
+      if (!phone) return null;
+      return allCustomers.find(customer => {
+        const storedPhone = convertToEnglishNumbers(customer.phone || '').replace(/\D/g, '');
+        return storedPhone.endsWith(phone.local) || storedPhone === phone.full;
+      }) || null;
+    }
+
+    async function prepareVoiceCustomer(parsed) {
+      const existingCustomer = findCustomerByVoicePhone(parsed.phone);
+      if (existingCustomer) {
+        currentOrder.customer = existingCustomer;
+        if (parsed.address) {
+          existingCustomer.addresses = Array.isArray(existingCustomer.addresses) ? existingCustomer.addresses : [];
+          const addressExists = existingCustomer.addresses.some(addr =>
+            normalizeVoiceText(addr.area) === normalizeVoiceText(parsed.address.area) &&
+            normalizeVoiceText(addr.details) === normalizeVoiceText(parsed.address.details)
+          );
+          if (!addressExists) {
+            existingCustomer.addresses.push(parsed.address);
+            await db.ref(`customers/${existingCustomer.id}`).set(existingCustomer);
+          }
+          currentOrder.selectedAddress = parsed.address;
+        } else if (Array.isArray(existingCustomer.addresses) && existingCustomer.addresses.length > 0) {
+          currentOrder.selectedAddress = existingCustomer.addresses[0];
+        }
+        if (!parsed.customerName) parsed.customerName = existingCustomer.name || '';
+        return;
+      }
+
+      const newCustomer = {
+        id: generateId(),
+        name: parsed.customerName,
+        phone: parsed.phone.full,
+        addresses: parsed.address ? [parsed.address] : []
+      };
+      await db.ref(`customers/${newCustomer.id}`).set(newCustomer);
+      allCustomers.push(newCustomer);
+      currentOrder.customer = newCustomer;
+      currentOrder.selectedAddress = parsed.address || null;
+    }
+
+    function renderVoiceInvoiceIssues(issues, unmatchedSegments) {
+      const analysis = document.getElementById('voiceInvoiceAnalysis');
+      if (!analysis) return;
+      const unmatchedHtml = unmatchedSegments.length
+        ? `<div class="mt-3"><div class="font-bold text-yellow-700">أصناف لم أفهمها:</div><ul class="list-disc pr-6">${unmatchedSegments.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`
+        : '';
+      analysis.innerHTML = `
+        <div class="font-bold text-red-700 mb-2">أحتاج معلومات إضافية قبل إنشاء الفاتورة:</div>
+        <ul class="list-disc pr-6">${issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>
+        ${unmatchedHtml}
+        <div class="mt-3 text-blue-700 font-bold">اضغط زر المايك مرة أخرى أو اكتب المعلومات الناقصة ثم اضغط إرسال.</div>
+      `;
+    }
+
+    function renderVoiceInvoiceAnalyzingPage() {
+      const page = document.getElementById('voiceInvoicePage');
+      if (!page) return;
+      page.innerHTML = `
+        <div class="min-h-full flex flex-col bg-slate-50">
+          <div class="bg-blue-700 text-white p-4 flex justify-between items-center shadow-lg">
+            <h2 class="text-2xl font-bold">تحليل بيانات الطلب</h2>
+            <button onclick="closeVoiceInvoicePage()" class="bg-white text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 transition">إلغاء</button>
+          </div>
+          <div class="flex-1 flex items-center justify-center p-6">
+            <div class="w-full max-w-xl bg-white rounded-3xl shadow-2xl p-10 text-center">
+              <div class="w-24 h-24 mx-auto mb-6 border-8 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+              <div id="voiceInvoiceStatus" class="text-2xl font-extrabold text-blue-700 mb-3">جاري تحليل البيانات...</div>
+              <div id="voiceInvoiceAnalysis" class="text-gray-600 text-lg leading-8">
+                يتم قراءة العميل والعنوان والأصناف وتجهيز صفحة مراجعة المنتجات.
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function waitForVoiceInvoiceAnalysis(ms = 1400) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function analyzeVoiceInvoiceCommand() {
+      if (voiceInvoiceIsAnalyzing) return;
+      voiceInvoiceIsAnalyzing = true;
+      const manualText = document.getElementById('voiceInvoiceManualInput')?.value || '';
+      const fullText = `${voiceInvoiceFinalTranscript} ${voiceInvoiceInterimTranscript} ${manualText}`.trim();
+      voiceInvoiceInterimTranscript = '';
+      updateVoiceInvoiceTranscriptDisplay();
+
+      if (!fullText) {
+        setVoiceInvoiceStatus('لم أجد طلبًا واضحًا. اضغط المايك أو اكتب الطلب ثم اضغط إرسال.', true);
+        voiceInvoiceIsAnalyzing = false;
+        return;
+      }
+
+      setVoiceInvoiceStatus('جاري تحليل الطلب...');
+      const phone = extractVoicePhone(fullText);
+      const productsResult = extractVoiceProducts(fullText);
+      const address = extractVoiceAddress(fullText);
+      const deliveryPrice = extractVoiceDeliveryPrice(fullText);
+      const orderType = extractVoiceOrderType(fullText, address);
+      const existingCustomer = findCustomerByVoicePhone(phone);
+      const parsed = {
+        text: fullText,
+        phone,
+        customerName: extractVoiceCustomerName(fullText) || existingCustomer?.name || '',
+        address: orderType === 'pickup' ? null : address,
+        deliveryPrice: orderType === 'pickup' ? 0 : deliveryPrice,
+        paymentMethod: extractVoicePaymentMethod(fullText),
+        orderType,
+        products: productsResult.matches
+      };
+
+      const issues = [];
+      if (!parsed.phone) issues.push('رقم الهاتف غير واضح.');
+      if (!parsed.customerName && !existingCustomer) issues.push('اسم العميل غير واضح.');
+      if (!hasVoiceProductsKeyword(fullText)) {
+        issues.push('قل "المنتجات:" قبل ذكر الأصناف.');
+      } else if (parsed.products.length === 0) {
+        issues.push('لم أتعرف على أي صنف من المنتجات.');
+      }
+      if (parsed.orderType === 'delivery' && !parsed.address && !(existingCustomer?.addresses || []).length) {
+        issues.push('عنوان التوصيل غير واضح.');
+      }
+
+      if (issues.length > 0 || productsResult.unmatchedSegments.length > 0) {
+        renderVoiceInvoiceIssues(issues, productsResult.unmatchedSegments);
+        setVoiceInvoiceStatus('التحليل توقف لأن هناك معلومات ناقصة.', true);
+        voiceInvoiceIsAnalyzing = false;
+        return;
+      }
+
+      try {
+        currentOrder = createEmptyOrder();
+        currentOrder.orderType = parsed.orderType;
+        currentOrder.paymentMethod = parsed.paymentMethod;
+        currentOrder.deliveryPrice = parsed.deliveryPrice;
+        currentOrder.selectedAddress = parsed.address || null;
+        parsed.products.forEach(item => addVoiceProductToOrder(item.product, item.quantity));
+        await prepareVoiceCustomer(parsed);
+
+        renderVoiceInvoiceAnalyzingPage();
+
+        const analysis = document.getElementById('voiceInvoiceAnalysis');
+        if (analysis) {
+          analysis.innerHTML = `
+            <div class="font-bold text-green-700 mb-2">تم تحليل الطلب وتجهيز الفاتورة.</div>
+            <div>العميل: ${escapeHtml(currentOrder.customer?.name || '')}</div>
+            <div>الهاتف: ${escapeHtml(currentOrder.customer?.phone || '')}</div>
+            <div>عدد الأصناف: ${currentOrder.items.length}</div>
+          `;
+        }
+        setVoiceInvoiceStatus('تم تحليل الطلب. جاري فتح مراجعة المنتجات...');
+        await waitForVoiceInvoiceAnalysis();
+        closeVoiceInvoicePage();
+        showNewInvoicePage(false, { reviewMode: true });
+      } catch (error) {
+        console.error('Voice invoice analysis error:', error);
+        setVoiceInvoiceStatus('حدث خطأ أثناء إنشاء الفاتورة من الصوت.', true);
+      } finally {
+        voiceInvoiceIsAnalyzing = false;
+      }
+    }
+    
+    function showNewInvoicePage(resetOrder = true, options = {}) {
+      if (resetOrder) {
+        currentOrder = createEmptyOrder();
+      }
+      const isReviewMode = options.reviewMode === true;
       
       const page = document.createElement('div');
       page.className = 'invoice-page';
@@ -1321,7 +1998,10 @@ function refreshUI() {
         <div class="h-full flex flex-col">
           <!-- Header with close button -->
           <div class="no-print bg-blue-600 text-white p-4 flex justify-between items-center">
-  <h2 class="text-2xl font-bold">فاتورة جديدة</h2>
+            <div>
+              <h2 class="text-2xl font-bold">${isReviewMode ? 'ارجو مراجعة المنتجات' : 'فاتورة جديدة'}</h2>
+              ${isReviewMode ? '<div class="text-blue-100 text-sm mt-1">راجع الأصناف والكميات، ويمكنك الإضافة أو الحذف أو التعديل قبل الانتقال لبيانات العميل.</div>' : ''}
+            </div>
             <button onclick="closeInvoicePage()" class="text-3xl font-bold hover:text-red-300">✕</button>
           </div>
           
@@ -1337,21 +2017,15 @@ function refreshUI() {
               </div>
               
               <div class="p-4 border-t border-gray-300">
-                <button id="nextButton" onclick="showOrderTypeSelection()" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
-                  التالي
+                <button id="nextButton" onclick="${isReviewMode ? 'completeVoiceProductReview()' : 'showCheckoutModal()'}" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
+                  ${isReviewMode ? 'تم المراجعة' : 'التالي'}
                 </button>
               </div>
             </div>
             
             <!-- Left side - Products -->
             <div class="flex-1 p-6 overflow-y-auto bg-gray-50">
-              <div class="invoice-product-toolbar">
-                <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="invoice-product-search w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-lg">
-                <div id="invoiceTotalBox" class="invoice-total-box" aria-live="polite">
-                  <span id="invoiceTotalValue" class="invoice-total-value">0.000</span>
-                  <span class="invoice-total-currency">KD</span>
-                </div>
-              </div>
+              <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-6 focus:border-blue-600 focus:outline-none text-lg">
               
               <div id="categoriesAndProductsContainer">
                 ${renderCategoriesForInvoice()}
@@ -1362,7 +2036,11 @@ function refreshUI() {
       `;
       
       document.body.appendChild(page);
-      updateInvoicePricingBox();
+      updateSelectedItemsDisplay();
+    }
+
+    function completeVoiceProductReview() {
+      showCheckoutModal();
     }
     
     function closeInvoicePage() {
@@ -1373,8 +2051,14 @@ function refreshUI() {
       currentOrder = {
         items: [],
         customer: null,
-        deliveryPrice: 0,
-        orderType: null
+	        deliveryPrice: 0,
+	        orderType: '',
+	        paymentMethod: '',
+	        selectedAddress: null,
+	        pickupBranch: '',
+	        discountType: 'none',
+        discountValue: 0,
+        discountAmount: 0
       };
     }
     
@@ -1453,22 +2137,6 @@ function refreshUI() {
         </div>
       `;
     }
-
-    function calculateInvoiceItemsTotal() {
-      return currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-    }
-
-    function updateInvoicePricingBox() {
-      const totalValue = document.getElementById('invoiceTotalValue');
-      if (!totalValue) return;
-      totalValue.textContent = calculateInvoiceItemsTotal().toFixed(3);
-    }
-
-    function setInvoicePricingBoxVisible(isVisible) {
-      const totalBox = document.getElementById('invoiceTotalBox');
-      if (!totalBox) return;
-      totalBox.classList.toggle('hidden', !isVisible);
-    }
     
     function addProductToInvoice(productId) {
       const product = allProducts.find(p => p.id === productId);
@@ -1485,6 +2153,7 @@ function refreshUI() {
           price: product.price,
           quantity: 1,
           unit: product.unit || '',
+          notes: '',
           total: product.price
         });
       }
@@ -1495,7 +2164,6 @@ function refreshUI() {
     function updateSelectedItemsDisplay() {
       const container = document.getElementById('selectedItemsContainer');
       const nextButton = document.getElementById('nextButton');
-      updateInvoicePricingBox();
       
       if (currentOrder.items.length === 0) {
         container.innerHTML = '<div class="text-center text-gray-400 py-8">لا توجد منتجات</div>';
@@ -1512,6 +2180,9 @@ function refreshUI() {
               <input type="text" value="${item.quantity}" readonly onclick="showNumericKeypadForInvoice(${index}, this)" class="quantity-input bg-white cursor-pointer">
               <span class="text-sm text-gray-600">× ${item.price.toFixed(3)}</span>
               <span class="font-bold text-blue-600 mr-auto">${item.total.toFixed(3)} د.ك</span>
+            </div>
+            <div class="mt-2">
+              <textarea rows="2" placeholder="ملاحظة للصنف (اختياري)" oninput="updateItemNote(${index}, this.value)" class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:border-blue-600 focus:outline-none">${item.notes || ''}</textarea>
             </div>
           </div>
         `).join('');
@@ -1537,6 +2208,11 @@ function refreshUI() {
     function removeItemFromInvoice(index) {
       currentOrder.items.splice(index, 1);
       updateSelectedItemsDisplay();
+    }
+
+    function updateItemNote(index, value) {
+      if (!currentOrder.items[index]) return;
+      currentOrder.items[index].notes = (value || '').trim();
     }
 function showNumericKeypadForInvoice(index, inputField) {
   if (document.querySelector('.numeric-keypad-overlay')) return;
@@ -1621,9 +2297,399 @@ function showNumericKeypadForInvoice(index, inputField) {
   document.body.appendChild(overlay);
 }
 
+    let checkoutDiscountModalType = 'percent';
+
+    function getDiscountDescription(discountType, discountValue) {
+      const value = parseFloat(discountValue) || 0;
+      if (discountType === 'percent') return `نسبة ${formatInventoryDecimal(value)}%`;
+      if (discountType === 'fixed') return `قيمة ثابتة ${value.toFixed(3)} د.ك`;
+      return 'بدون خصم';
+    }
+
+    function calculateOrderDiscountAmount(baseTotal, discountType, discountValue) {
+      const value = parseFloat(discountValue) || 0;
+      if (value <= 0 || baseTotal <= 0) return 0;
+
+      let amount = discountType === 'percent'
+        ? baseTotal * (value / 100)
+        : value;
+      if (amount > baseTotal) amount = baseTotal;
+      return parseFloat(amount.toFixed(3));
+    }
+
+    function getCurrentOrderTotals() {
+      const subTotal = currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+      const deliveryPrice = parseFloat(currentOrder.deliveryPrice) || 0;
+      const beforeDiscount = subTotal + deliveryPrice;
+      const discountAmount = calculateOrderDiscountAmount(beforeDiscount, currentOrder.discountType, currentOrder.discountValue);
+      const total = parseFloat((beforeDiscount - discountAmount).toFixed(3));
+      return {
+        subTotal: parseFloat(subTotal.toFixed(3)),
+        deliveryPrice: parseFloat(deliveryPrice.toFixed(3)),
+        discountAmount,
+        total: Math.max(0, total)
+      };
+    }
+
+    function showCheckoutModal() {
+      if (currentOrder.items.length === 0) {
+        showToast('لا توجد منتجات في الفاتورة', true);
+        return;
+      }
+
+      currentOrder.orderType = currentOrder.orderType || 'pickup';
+      currentOrder.paymentMethod = currentOrder.paymentMethod || 'cash';
+      currentOrder.discountType = currentOrder.discountType || 'none';
+      currentOrder.discountValue = parseFloat(currentOrder.discountValue) || 0;
+      currentOrder.discountAmount = parseFloat(currentOrder.discountAmount) || 0;
+
+      const customerName = currentOrder.customer?.name || '';
+      const customerPhoneRaw = convertToEnglishNumbers((currentOrder.customer?.phone || '').toString());
+      const phoneWithoutPrefix = customerPhoneRaw.startsWith('965') ? customerPhoneRaw.slice(3) : customerPhoneRaw;
+      const selectedArea = currentOrder.selectedAddress?.area || '';
+      const knownArea = areas.includes(selectedArea);
+      const areaSelectValue = selectedArea ? (knownArea ? selectedArea : 'أخرى') : '';
+      const areaManualValue = knownArea ? '' : selectedArea;
+	      const addressDetails = currentOrder.selectedAddress?.details || '';
+	      const deliveryPrice = parseFloat(currentOrder.deliveryPrice) || 0;
+	      const selectedPickupBranch = currentOrder.pickupBranch || (PICKUP_BRANCHES.includes(currentBranch) ? currentBranch : '');
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.id = 'checkoutModalOverlay';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-5xl max-h-[92vh] overflow-y-auto">
+          <div class="flex justify-between items-center mb-5">
+            <h2 class="text-2xl font-bold text-blue-600">الخطوة الأخيرة - إتمام الفاتورة</h2>
+            <button onclick="document.getElementById('checkoutModalOverlay')?.remove()" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">✕</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <label class="block mb-2 font-bold text-gray-700">نوع الطلب</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button id="checkoutDeliveryBtn" onclick="setCheckoutOrderType('delivery')" class="px-4 py-3 rounded-lg font-bold transition">🚚 توصيل</button>
+                <button id="checkoutPickupBtn" onclick="setCheckoutOrderType('pickup')" class="px-4 py-3 rounded-lg font-bold transition">🛍️ استلام</button>
+              </div>
+            </div>
+
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <label class="block mb-2 font-bold text-gray-700">طريقة الدفع</label>
+              <div class="grid grid-cols-3 gap-2">
+                <button id="checkoutCashBtn" onclick="setCheckoutPaymentMethod('cash')" class="px-3 py-3 rounded-lg font-bold transition">💵 كاش</button>
+                <button id="checkoutOnlineBtn" onclick="setCheckoutPaymentMethod('online')" class="px-3 py-3 rounded-lg font-bold transition">💳 أونلاين</button>
+                <button id="checkoutKnetBtn" onclick="setCheckoutPaymentMethod('knet')" class="px-3 py-3 rounded-lg font-bold transition">💳 كي-نت</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white border-2 border-gray-200 rounded-xl p-4 mb-5">
+            <h3 class="text-lg font-bold text-gray-800 mb-3">بيانات العميل</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">اسم العميل</label>
+                <input id="checkoutCustomerName" type="text" value="${customerName}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
+                <div class="flex gap-2">
+                  <input id="checkoutCustomerPrefix" type="text" value="965" class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <input id="checkoutCustomerPhone" type="text" value="${phoneWithoutPrefix}" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                </div>
+              </div>
+            </div>
+          </div>
+
+	          <div id="checkoutDeliveryFields" class="bg-white border-2 border-gray-200 rounded-xl p-4 mb-5 ${currentOrder.orderType === 'delivery' ? '' : 'hidden'}">
+	            <h3 class="text-lg font-bold text-gray-800 mb-3">بيانات التوصيل</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">المنطقة</label>
+                <select id="checkoutDeliveryArea" onchange="toggleCheckoutAreaManual(); updateCheckoutTotals();" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <option value="">اختر المنطقة</option>
+                  ${areas.map(area => `<option value="${area}" ${areaSelectValue === area ? 'selected' : ''}>${area}</option>`).join('')}
+                  <option value="أخرى" ${areaSelectValue === 'أخرى' ? 'selected' : ''}>أخرى (كتابة يدوية)</option>
+                </select>
+                <input id="checkoutDeliveryAreaManual" type="text" value="${areaManualValue}" placeholder="اكتب المنطقة" class="w-full p-3 border-2 border-gray-300 rounded-lg mt-2 ${areaSelectValue === 'أخرى' ? '' : 'hidden'} focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">رسوم التوصيل (د.ك)</label>
+                <input id="checkoutDeliveryPrice" type="text" value="${deliveryPrice.toFixed(3)}" oninput="this.value = convertToEnglishNumbers(this.value); updateCheckoutTotals();" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div class="md:col-span-2">
+                <label class="block mb-2 font-bold text-gray-700">تفاصيل العنوان</label>
+                <textarea id="checkoutDeliveryAddress" rows="3" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">${addressDetails}</textarea>
+              </div>
+	            </div>
+	          </div>
+
+	          <div id="checkoutPickupFields" class="bg-white border-2 border-gray-200 rounded-xl p-4 mb-5 ${currentOrder.orderType === 'pickup' ? '' : 'hidden'}">
+	            <h3 class="text-lg font-bold text-gray-800 mb-3">بيانات الاستلام</h3>
+	            <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+	            <select id="checkoutPickupBranch" onchange="currentOrder.pickupBranch = this.value" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+	              <option value="">اختر فرع الاستلام</option>
+	              ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${selectedPickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+	            </select>
+	          </div>
+
+	          <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-5">
+            <h3 class="text-lg font-bold text-blue-700 mb-3">ملخص الفاتورة</h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between"><span>سعر الفاتورة الإجمالي:</span><span id="checkoutSubTotal" class="font-bold">0.000 د.ك</span></div>
+              <div class="flex justify-between"><span>سعر التوصيل:</span><span id="checkoutDeliveryTotal" class="font-bold">0.000 د.ك</span></div>
+              <div class="flex justify-between"><span>قيمة الخصم (<span id="checkoutDiscountLabel">بدون خصم</span>):</span><span id="checkoutDiscountAmount" class="font-bold text-red-600">0.000 د.ك</span></div>
+              <div class="border-t border-blue-200 pt-2 mt-2 flex justify-between text-lg font-extrabold"><span>الإجمالي الكلي:</span><span id="checkoutGrandTotal" class="text-blue-700">0.000 د.ك</span></div>
+            </div>
+            <div class="flex gap-2 mt-3">
+              <button onclick="requestDiscountPasswordForCheckout()" class="bg-yellow-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-yellow-600 transition">تطبيق خصم</button>
+              <button onclick="clearCheckoutDiscount()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">إزالة الخصم</button>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <button onclick="finalizeCheckoutOrder()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">طباعة الفاتورة</button>
+            <button onclick="document.getElementById('checkoutModalOverlay')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      setCheckoutOrderType(currentOrder.orderType);
+      setCheckoutPaymentMethod(currentOrder.paymentMethod);
+      toggleCheckoutAreaManual();
+      updateCheckoutTotals();
+    }
+
+    function setCheckoutOrderType(type) {
+      currentOrder.orderType = type;
+	      const deliveryBtn = document.getElementById('checkoutDeliveryBtn');
+	      const pickupBtn = document.getElementById('checkoutPickupBtn');
+	      const deliveryFields = document.getElementById('checkoutDeliveryFields');
+	      const pickupFields = document.getElementById('checkoutPickupFields');
+
+      if (deliveryBtn) deliveryBtn.className = `px-4 py-3 rounded-lg font-bold transition ${type === 'delivery' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      if (pickupBtn) pickupBtn.className = `px-4 py-3 rounded-lg font-bold transition ${type === 'pickup' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+	      if (deliveryFields) {
+	        if (type === 'delivery') deliveryFields.classList.remove('hidden');
+	        else deliveryFields.classList.add('hidden');
+	      }
+	      if (pickupFields) {
+	        if (type === 'pickup') pickupFields.classList.remove('hidden');
+	        else pickupFields.classList.add('hidden');
+	      }
+	      updateCheckoutTotals();
+	    }
+
+    function setCheckoutPaymentMethod(method) {
+      currentOrder.paymentMethod = method;
+      const cashBtn = document.getElementById('checkoutCashBtn');
+      const onlineBtn = document.getElementById('checkoutOnlineBtn');
+      const knetBtn = document.getElementById('checkoutKnetBtn');
+
+      if (cashBtn) cashBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'cash' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      if (onlineBtn) onlineBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'online' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      if (knetBtn) knetBtn.className = `px-3 py-3 rounded-lg font-bold transition ${method === 'knet' ? 'bg-cyan-600 text-white' : 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'}`;
+    }
+
+    function toggleCheckoutAreaManual() {
+      const areaSelect = document.getElementById('checkoutDeliveryArea');
+      const manualInput = document.getElementById('checkoutDeliveryAreaManual');
+      if (!areaSelect || !manualInput) return;
+      if (areaSelect.value === 'أخرى') manualInput.classList.remove('hidden');
+      else manualInput.classList.add('hidden');
+    }
+
+    function updateCheckoutTotals() {
+      const subTotal = currentOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+      let deliveryPrice = 0;
+      if (currentOrder.orderType === 'delivery') {
+        deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('checkoutDeliveryPrice')?.value || '0')) || 0;
+      }
+      currentOrder.deliveryPrice = deliveryPrice;
+
+      const beforeDiscount = subTotal + deliveryPrice;
+      const discountAmount = calculateOrderDiscountAmount(beforeDiscount, currentOrder.discountType, currentOrder.discountValue);
+      currentOrder.discountAmount = discountAmount;
+      const total = Math.max(0, parseFloat((beforeDiscount - discountAmount).toFixed(3)));
+
+      const discountLabel = getDiscountDescription(currentOrder.discountType, currentOrder.discountValue);
+      const subTotalElem = document.getElementById('checkoutSubTotal');
+      const deliveryElem = document.getElementById('checkoutDeliveryTotal');
+      const discountLabelElem = document.getElementById('checkoutDiscountLabel');
+      const discountAmountElem = document.getElementById('checkoutDiscountAmount');
+      const grandElem = document.getElementById('checkoutGrandTotal');
+      if (subTotalElem) subTotalElem.textContent = `${subTotal.toFixed(3)} د.ك`;
+      if (deliveryElem) deliveryElem.textContent = `${deliveryPrice.toFixed(3)} د.ك`;
+      if (discountLabelElem) discountLabelElem.textContent = discountLabel;
+      if (discountAmountElem) discountAmountElem.textContent = `${discountAmount.toFixed(3)} د.ك`;
+      if (grandElem) grandElem.textContent = `${total.toFixed(3)} د.ك`;
+    }
+
+    function clearCheckoutDiscount() {
+      currentOrder.discountType = 'none';
+      currentOrder.discountValue = 0;
+      currentOrder.discountAmount = 0;
+      updateCheckoutTotals();
+    }
+
+    function requestDiscountPasswordForCheckout() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.id = 'discountPasswordModal';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-md">
+          <h3 class="text-xl font-bold text-blue-600 mb-4">تطبيق خصم</h3>
+          <label class="block mb-2 font-bold text-gray-700">أدخل كلمة المرور</label>
+          <input id="discountPasswordInput" type="password" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+          <div class="flex gap-3 mt-5">
+            <button onclick="confirmDiscountPasswordForCheckout()" class="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-blue-700 transition">تأكيد</button>
+            <button onclick="document.getElementById('discountPasswordModal')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function confirmDiscountPasswordForCheckout() {
+      const password = document.getElementById('discountPasswordInput')?.value || '';
+      if (password !== '5130') {
+        showToast('كلمة المرور غير صحيحة', true);
+        return;
+      }
+      document.getElementById('discountPasswordModal')?.remove();
+      showDiscountValueModalForCheckout();
+    }
+
+    function showDiscountValueModalForCheckout() {
+      checkoutDiscountModalType = currentOrder.discountType === 'fixed' ? 'fixed' : 'percent';
+      const currentValue = parseFloat(currentOrder.discountValue) || 0;
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.id = 'discountValueModal';
+      modal.innerHTML = `
+        <div class="modal-content p-6 w-full max-w-md">
+          <h3 class="text-xl font-bold text-blue-600 mb-3">قيمة الخصم</h3>
+          <input id="discountValueDisplay" type="text" value="${currentValue > 0 ? formatInventoryDecimal(currentValue) : ''}" readonly class="w-full text-center text-3xl font-bold p-3 border-2 border-blue-300 rounded-lg mb-3">
+          <div class="grid grid-cols-2 gap-2 mb-3">
+            <button id="discountPercentBtn" onclick="setCheckoutDiscountModalType('percent')" class="py-2 rounded-lg font-bold transition">نسبة مئوية %</button>
+            <button id="discountFixedBtn" onclick="setCheckoutDiscountModalType('fixed')" class="py-2 rounded-lg font-bold transition">قيمة ثابتة</button>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            ${[
+              ['٧', '7'], ['٨', '8'], ['٩', '9'],
+              ['٤', '4'], ['٥', '5'], ['٦', '6'],
+              ['١', '1'], ['٢', '2'], ['٣', '3'],
+              ['٠', '0'], ['٫', '.'], ['⌫', 'delete']
+            ].map(item => `
+              <button onclick="handleCheckoutDiscountKeypad('${item[1]}')" class="bg-gray-100 hover:bg-gray-200 rounded-lg py-3 text-2xl font-bold">${item[0]}</button>
+            `).join('')}
+          </div>
+          <div class="flex gap-3">
+            <button onclick="applyCheckoutDiscountFromModal()" class="flex-1 bg-green-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-green-700 transition">تطبيق</button>
+            <button onclick="document.getElementById('discountValueModal')?.remove()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      setCheckoutDiscountModalType(checkoutDiscountModalType);
+    }
+
+    function setCheckoutDiscountModalType(type) {
+      checkoutDiscountModalType = type;
+      const percentBtn = document.getElementById('discountPercentBtn');
+      const fixedBtn = document.getElementById('discountFixedBtn');
+      if (percentBtn) percentBtn.className = `py-2 rounded-lg font-bold transition ${type === 'percent' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      if (fixedBtn) fixedBtn.className = `py-2 rounded-lg font-bold transition ${type === 'fixed' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+    }
+
+    function handleCheckoutDiscountKeypad(value) {
+      const display = document.getElementById('discountValueDisplay');
+      if (!display) return;
+      if (value === 'delete') {
+        display.value = display.value.slice(0, -1);
+        return;
+      }
+      if (value === '.') {
+        if (!display.value.includes('.')) display.value += '.';
+        return;
+      }
+      display.value += value;
+    }
+
+    function applyCheckoutDiscountFromModal() {
+      const display = document.getElementById('discountValueDisplay');
+      if (!display) return;
+      const value = parseFloat(normalizeDecimalInput(display.value));
+      if (isNaN(value) || value <= 0) {
+        showToast('الرجاء إدخال قيمة خصم صحيحة', true);
+        return;
+      }
+      currentOrder.discountType = checkoutDiscountModalType;
+      currentOrder.discountValue = value;
+      document.getElementById('discountValueModal')?.remove();
+      updateCheckoutTotals();
+    }
+
+    function finalizeCheckoutOrder() {
+      const orderType = currentOrder.orderType;
+      const paymentMethod = currentOrder.paymentMethod;
+      const customerName = (document.getElementById('checkoutCustomerName')?.value || '').trim();
+      const phonePrefix = (document.getElementById('checkoutCustomerPrefix')?.value || '965').trim();
+      const customerPhone = normalizeDecimalInput(document.getElementById('checkoutCustomerPhone')?.value || '');
+
+      if (!orderType) {
+        showToast('اختر نوع الطلب', true);
+        return;
+      }
+      if (!paymentMethod) {
+        showToast('اختر طريقة الدفع', true);
+        return;
+      }
+      if (!customerName || !customerPhone) {
+        showToast('الرجاء إدخال اسم العميل ورقم الهاتف', true);
+        return;
+      }
+
+      currentOrder.customer = {
+        name: customerName,
+        phone: `${phonePrefix}${customerPhone}`
+      };
+
+      if (orderType === 'delivery') {
+        let area = document.getElementById('checkoutDeliveryArea')?.value || '';
+        if (area === 'أخرى') {
+          area = (document.getElementById('checkoutDeliveryAreaManual')?.value || '').trim();
+        }
+        const details = (document.getElementById('checkoutDeliveryAddress')?.value || '').trim();
+        const deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('checkoutDeliveryPrice')?.value || '0')) || 0;
+
+        if (!area || !details) {
+          showToast('الرجاء إدخال عنوان التوصيل بالكامل', true);
+          return;
+        }
+
+	        currentOrder.deliveryPrice = deliveryPrice;
+	        currentOrder.selectedAddress = { area, details };
+	        currentOrder.pickupBranch = '';
+	      } else {
+	        const pickupBranch = (document.getElementById('checkoutPickupBranch')?.value || currentOrder.pickupBranch || '').trim();
+	        if (!pickupBranch) {
+	          showToast('اختر فرع الاستلام', true);
+	          return;
+	        }
+	        currentOrder.deliveryPrice = 0;
+	        currentOrder.selectedAddress = null;
+	        currentOrder.pickupBranch = pickupBranch;
+	      }
+
+      updateCheckoutTotals();
+      document.getElementById('checkoutModalOverlay')?.remove();
+      printAndSaveInvoice();
+    }
+
     
      function showOrderTypeSelection() {
-      setInvoicePricingBoxVisible(false);
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
@@ -1658,7 +2724,7 @@ function showNumericKeypadForInvoice(index, inputField) {
               🛍️ استلام
             </button>
           </div>
-          <button onclick="this.closest('.modal-overlay').remove(); setInvoicePricingBoxVisible(true)" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          <button onclick="this.closest('.modal-overlay').remove()" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
         </div>
       `;
       document.body.appendChild(modal);
@@ -2039,14 +3105,22 @@ function showNumericKeypadForInvoice(index, inputField) {
               <input type="text" id="pickupCustomerName" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
             </div>
             
-            <div>
-              <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
-              <div class="flex gap-2">
-                <input type="text" id="pickupCustomerPrefix" value="965" class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                <input type="text" id="pickupCustomerPhone" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-              </div>
-            </div>
-          </div>
+	            <div>
+	              <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
+	              <div class="flex gap-2">
+	                <input type="text" id="pickupCustomerPrefix" value="965" class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+	                <input type="text" id="pickupCustomerPhone" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+	              </div>
+	            </div>
+
+	            <div>
+	              <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+	              <select id="pickupBranchSelect" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+	                <option value="">اختر فرع الاستلام</option>
+	                ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${currentOrder.pickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+	              </select>
+	            </div>
+	          </div>
           
           <div class="flex gap-3 mt-6">
             <button onclick="finalizePickupOrder()" class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">طباعة الفاتورة</button>
@@ -2064,9 +3138,17 @@ function showNumericKeypadForInvoice(index, inputField) {
       modal.className = 'modal-overlay';
       modal.innerHTML = `
         <div class="modal-content p-8 w-full max-w-4xl">
-          <h2 class="text-2xl font-bold text-blue-600 mb-6">اختر العميل</h2>
-          
-          <input type="text" id="customerSearchPickup" oninput="filterCustomersPickup()" placeholder="🔍 بحث..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+	          <h2 class="text-2xl font-bold text-blue-600 mb-6">اختر العميل</h2>
+
+	          <div class="mb-4">
+	            <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+	            <select id="existingPickupBranchSelect" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+	              <option value="">اختر فرع الاستلام</option>
+	              ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${currentOrder.pickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+	            </select>
+	          </div>
+	          
+	          <input type="text" id="customerSearchPickup" oninput="filterCustomersPickup()" placeholder="🔍 بحث..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
           
           <div class="max-h-96 overflow-y-auto">
             ${allCustomers.map(customer => `
@@ -2093,39 +3175,53 @@ function showNumericKeypadForInvoice(index, inputField) {
       });
     }
     
-    function selectCustomerPickup(customerId) {
-      const customer = allCustomers.find(c => c.id === customerId);
-      currentOrder.customer = {
-        name: customer.name,
-        phone: customer.phone
-      };
-      document.querySelector('.modal-overlay').remove();
-      printAndSaveInvoice();
-    }
+	    function selectCustomerPickup(customerId) {
+	      const pickupBranch = (document.getElementById('existingPickupBranchSelect')?.value || '').trim();
+	      if (!pickupBranch) {
+	        showToast('اختر فرع الاستلام', true);
+	        return;
+	      }
+	      const customer = allCustomers.find(c => c.id === customerId);
+	      currentOrder.customer = {
+	        name: customer.name,
+	        phone: customer.phone
+	      };
+	      currentOrder.pickupBranch = pickupBranch;
+	      document.querySelector('.modal-overlay').remove();
+	      printAndSaveInvoice();
+	    }
     
     function finalizePickupOrder() {
-      const name = document.getElementById('pickupCustomerName').value.trim();
-      const prefix = document.getElementById('pickupCustomerPrefix').value.trim();
-      const phone = document.getElementById('pickupCustomerPhone').value.trim();
-      
-      if (!name || !phone) {
-        showToast('الرجاء إدخال الاسم ورقم الهاتف', true);
-        return;
-      }
-      
-      currentOrder.customer = {
-        name,
-        phone: prefix + phone
-      };
+	      const name = document.getElementById('pickupCustomerName').value.trim();
+	      const prefix = document.getElementById('pickupCustomerPrefix').value.trim();
+	      const phone = document.getElementById('pickupCustomerPhone').value.trim();
+	      const pickupBranch = (document.getElementById('pickupBranchSelect')?.value || '').trim();
+	      
+	      if (!name || !phone) {
+	        showToast('الرجاء إدخال الاسم ورقم الهاتف', true);
+	        return;
+	      }
+	      if (!pickupBranch) {
+	        showToast('اختر فرع الاستلام', true);
+	        return;
+	      }
+	      
+	      currentOrder.customer = {
+	        name,
+	        phone: prefix + phone
+	      };
+	      currentOrder.pickupBranch = pickupBranch;
       
       document.querySelector('.modal-overlay').remove();
       printAndSaveInvoice();
     }
     
-    async function printAndSaveInvoice() {
-      // Get branch-specific invoice number
-      const invoiceNumber = await generateInvoiceNumber(currentBranch);
+	    async function printAndSaveInvoice() {
+	      // Get branch-specific invoice number
+	      const invoiceBranch = currentOrder.orderType === 'pickup' && currentOrder.pickupBranch ? currentOrder.pickupBranch : currentBranch;
+	      const invoiceNumber = await generateInvoiceNumber(invoiceBranch);
       const timestamp = Date.now();
+      const totals = getCurrentOrderTotals();
       
       // Clean items to ensure all fields have valid values
       const cleanedItems = currentOrder.items.map(item => ({
@@ -2135,24 +3231,30 @@ function showNumericKeypadForInvoice(index, inputField) {
         price: item.price || 0,
         quantity: item.quantity || 0,
         total: item.total || 0,
-        unit: item.unit || ''
+        unit: item.unit || '',
+        notes: item.notes || ''
       }));
       
       const order = {
         invoiceNumber,
         timestamp,
-        cashier: currentCashier.name || '',
-        cashierCode: currentCashier.code || '',
-        branch: currentBranch || '',
+	        cashier: currentCashier.name || '',
+	        cashierCode: currentCashier.code || '',
+	        branch: invoiceBranch || '',
+	        cashierBranch: currentBranch || '',
         customerName: currentOrder.customer.name || '',
-        phoneNumber: currentOrder.customer.phone || '',
-        orderType: currentOrder.orderType || '',
-        paymentMethod: currentOrder.paymentMethod || '',
-        address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : '',
-        items: cleanedItems,
-        deliveryPrice: currentOrder.deliveryPrice || 0,
-        notes: currentOrder.notes || '',
-        total: currentOrder.items.reduce((sum, item) => sum + item.total, 0) + (currentOrder.deliveryPrice || 0)
+	        phoneNumber: currentOrder.customer.phone || '',
+	        orderType: currentOrder.orderType || '',
+	        paymentMethod: currentOrder.paymentMethod || '',
+	        pickupBranch: currentOrder.pickupBranch || '',
+	        address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : (currentOrder.pickupBranch ? `استلام من فرع ${currentOrder.pickupBranch}` : ''),
+	        items: cleanedItems,
+        subTotal: totals.subTotal,
+        deliveryPrice: totals.deliveryPrice,
+        discountType: currentOrder.discountType || 'none',
+        discountValue: parseFloat(currentOrder.discountValue) || 0,
+        discountAmount: totals.discountAmount,
+        total: totals.total
       };
       
       try {
@@ -2170,11 +3272,6 @@ function showNumericKeypadForInvoice(index, inputField) {
     }
     
     function showThermalInvoice(order) {
-  const invoiceDeliveryFee = getOrderDeliveryFee(order);
-  const invoiceItemsSubtotal = getOrderItemsGrossTotal(order);
-  const invoiceDiscountTotal = getOrderDiscountTotal(order);
-  const invoiceItemsNetTotal = getOrderItemsNetTotal(order);
-  const invoiceGrandTotal = invoiceItemsNetTotal + invoiceDeliveryFee;
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.innerHTML = `
@@ -2236,11 +3333,10 @@ function showNumericKeypadForInvoice(index, inputField) {
                 <td style="padding: 4px 0; border-bottom: 1px dotted #eee;">
                   <div style="font-weight: 700;">${item.productName}</div>
                   ${item.productNameEn ? `<div style="font-size: 9px; color: #666;">${item.productNameEn}</div>` : ''}
-                  ${getItemDiscountAmount(item) > 0 ? `<div style="font-size: 9px; color: #b91c1c;">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
                   ${item.notes ? `<div style="font-size: 10px; color: #0066cc; margin-top: 2px; font-weight: 600;">📝 ${item.notes}</div>` : ''}
                 </td>
                 <td style="text-align: center; font-weight: bold; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.quantity}</td>
-                <td style="text-align: left; padding: 4px 0; border-bottom: 1px dotted #eee;">${formatNumberWithThreeDecimals(item.total)}</td>
+                <td style="text-align: left; padding: 4px 0; border-bottom: 1px dotted #eee;">${item.total.toFixed(3)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -2249,32 +3345,25 @@ function showNumericKeypadForInvoice(index, inputField) {
         <div style="margin-top: 10px; border-top: 1px solid #000; padding-top: 5px; font-size: 11px;">
           <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
             <span>مجموع الأصناف:</span>
-            <span>${invoiceItemsSubtotal.toFixed(3)} د.ك</span>
+            <span>${order.items.reduce((sum, item) => sum + item.total, 0).toFixed(3)} د.ك</span>
           </div>
-          ${invoiceDiscountTotal > 0 ? `
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #b91c1c;">
-              <span>المبلغ المخصوم:</span>
-              <span>-${invoiceDiscountTotal.toFixed(3)} د.ك</span>
-            </div>
-          ` : ''}
-          ${invoiceDeliveryFee > 0 ? `
+          ${order.deliveryPrice > 0 ? `
             <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
               <span>رسوم التوصيل:</span>
-              <span>${invoiceDeliveryFee.toFixed(3)} د.ك</span>
+              <span>${order.deliveryPrice.toFixed(3)} د.ك</span>
+            </div>
+          ` : ''}
+          ${(parseFloat(order.discountAmount) || 0) > 0 ? `
+            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #b91c1c;">
+              <span>الخصم (${getDiscountDescription(order.discountType, order.discountValue)}):</span>
+              <span>-${(parseFloat(order.discountAmount) || 0).toFixed(3)} د.ك</span>
             </div>
           ` : ''}
           <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 900; margin-top: 5px; border-top: 2px double #000; padding-top: 5px;">
             <span>الإجمالي:</span>
-            <span>${invoiceGrandTotal.toFixed(3)} د.ك</span>
+            <span>${order.total.toFixed(3)} د.ك</span>
           </div>
         </div>
-
-        ${order.notes ? `
-<div style="background: #fffbeb; border: 1px dashed #fbbf24; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 11px;">
-  <div style="font-weight: bold; margin-bottom: 3px; color: #92400e;">📝 ملاحظات:</div>
-  <div style="color: #451a03; line-height: 1.4;">${order.notes}</div>
-</div>
-` : ''}
 
         <div style="text-align: center; margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px;">
           <div style="font-size: 11px; font-weight: bold;">شكراً لزيارتكم!</div>
@@ -2396,26 +3485,10 @@ function printThermalInvoice(button) {
 }
 
     
-    async function reprintInvoice(orderId) {
-      try {
-        const snapshot = await db.ref(`orders/${orderId}`).once('value');
-        const latestOrder = snapshot.val();
-        const order = latestOrder ? { id: orderId, ...latestOrder } : allOrders.find(o => o.id === orderId);
-
-        if (!order) {
-          showToast('الفاتورة غير موجودة', true);
-          return;
-        }
-
+    function reprintInvoice(orderId) {
+      const order = allOrders.find(o => o.id === orderId);
+      if (order) {
         showThermalInvoice(order);
-      } catch (error) {
-        console.error('Error reprinting invoice:', error);
-        const order = allOrders.find(o => o.id === orderId);
-        if (order) {
-          showThermalInvoice(order);
-          return;
-        }
-        showToast('تعذر تحميل الفاتورة للطباعة', true);
       }
     }
 
@@ -2442,7 +3515,13 @@ function printThermalInvoice(button) {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: null
+	        orderType: '',
+	        paymentMethod: '',
+	        selectedAddress: null,
+	        pickupBranch: '',
+	        discountType: 'none',
+        discountValue: 0,
+        discountAmount: 0
       };
       document.querySelector('.modal-overlay').remove();
       currentScreen = 'home';
@@ -2525,6 +3604,9 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'orders' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('orders')">
             📦 الطلبات
           </div>
+          <div class="sidebar-item ${section === 'discountRequests' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('discountRequests')">
+            🏷️ طلبات الخصومات
+          </div>
           <div class="sidebar-item ${section === 'salesReport' || section === 'salesReportBranchDetails' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('salesReport')">
             📈 تقرير المبيعات
           </div>
@@ -2573,6 +3655,8 @@ function renderAccountingContent(section) {
   switch(section) {
     case 'orders': 
       return renderOrdersSection();
+    case 'discountRequests':
+      return renderDiscountRequestsSection();
     case 'salesReport':
       return renderSalesReportSection();
     case 'salesReportBranchDetails':
@@ -2670,7 +3754,7 @@ function renderAccountingContent(section) {
             </thead>
             <tbody id="ordersBody">
               ${allOrders.map(order => `
-                <tr class="order-row" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
+	                <tr class="order-row" data-order-id="${order.id || ''}" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
                   <td>${order.invoiceNumber || 'N/A'}</td>
                   <td>${order.customerName || 'N/A'}</td>
                   <td>${order.phoneNumber || 'N/A'}</td>
@@ -2694,6 +3778,76 @@ function renderAccountingContent(section) {
   `;
 }
 
+    function renderDiscountRequestsSection() {
+      const discountedOrders = allOrders
+        .filter(order => (parseFloat(order.discountAmount) || 0) > 0)
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      return `
+        <div>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">طلبات الخصومات</h2>
+            <div class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold">عدد الطلبات: ${discountedOrders.length}</div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>رقم الفاتورة</th>
+                    <th>التاريخ</th>
+                    <th>العميل</th>
+                    <th>الهاتف</th>
+                    <th>الكاشير</th>
+                    <th>الفرع</th>
+                    <th>نوع الطلب</th>
+                    <th>طريقة الدفع</th>
+                    <th>العنوان</th>
+                    <th>مجموع الأصناف</th>
+                    <th>التوصيل</th>
+                    <th>نوع الخصم</th>
+                    <th>قيمة الخصم</th>
+                    <th>الإجمالي بعد الخصم</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${discountedOrders.length > 0 ? discountedOrders.map(order => {
+                    const itemsSubTotal = parseFloat(order.subTotal) || (Array.isArray(order.items) ? order.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0) : 0);
+                    const deliveryPrice = parseFloat(order.deliveryPrice) || 0;
+                    const discountAmount = parseFloat(order.discountAmount) || 0;
+                    const finalTotal = parseFloat(order.total) || Math.max(0, itemsSubTotal + deliveryPrice - discountAmount);
+                    return `
+                      <tr>
+                        <td>${order.invoiceNumber || '-'}</td>
+                        <td>${order.timestamp ? `${formatDate(order.timestamp)} ${formatTime(order.timestamp)}` : '-'}</td>
+                        <td>${order.customerName || '-'}</td>
+                        <td>${order.phoneNumber || '-'}</td>
+                        <td>${order.cashier || '-'}</td>
+                        <td>${order.branch || '-'}</td>
+                        <td>${order.orderType === 'delivery' ? 'توصيل' : order.orderType === 'pickup' ? 'استلام' : '-'}</td>
+                        <td>${getPaymentMethodLabel(order.paymentMethod, false)}</td>
+                        <td>${order.address || '-'}</td>
+                        <td>${itemsSubTotal.toFixed(3)} د.ك</td>
+                        <td>${deliveryPrice.toFixed(3)} د.ك</td>
+                        <td>${getDiscountDescription(order.discountType, order.discountValue)}</td>
+                        <td class="text-red-600 font-bold">${discountAmount.toFixed(3)} د.ك</td>
+                        <td class="font-bold text-blue-700">${finalTotal.toFixed(3)} د.ك</td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="14" class="text-center text-gray-500 py-8">لا توجد فواتير عليها خصم</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     function filterOrders() {
       const searchTerm = document.getElementById('orderSearch').value.toLowerCase();
       const rows = document.querySelectorAll('.order-row');
@@ -2704,10 +3858,10 @@ function renderAccountingContent(section) {
       });
     }
 
-    function applyFilters() {
-      const fromDate = document.getElementById('filterFrom').value;
-      const toDate = document.getElementById('filterTo').value;
-      const cashier = document.getElementById('filterCashier').value;
+	    function applyFilters() {
+	      const fromDate = document.getElementById('filterFrom').value;
+	      const toDate = document.getElementById('filterTo').value;
+	      const cashier = document.getElementById('filterCashier').value;
       const branch = document.getElementById('filterBranch').value;
       
       const rows = document.querySelectorAll('.order-row');
@@ -2732,13 +3886,34 @@ function renderAccountingContent(section) {
         if (cashier && rowCashier !== cashier) show = false;
         if (branch && rowBranch !== branch) show = false;
         
-        row.style.display = show ? '' : 'none';
-      });
-    }
+	        row.style.display = show ? '' : 'none';
+	      });
+	    }
 
-        function exportToExcel() {
-  const rows = document.querySelectorAll('.order-row');
-  let totalNet = 0;
+	    function getOrderFromOrderRow(row) {
+	      const rowOrderId = row.getAttribute('data-order-id') || '';
+	      if (rowOrderId) {
+	        const orderById = allOrders.find(order => String(order.id || '') === rowOrderId);
+	        if (orderById) return orderById;
+	      }
+
+	      const invoiceNumber = (row.cells[0]?.textContent || '').trim().replace('#', '');
+	      const branch = row.getAttribute('data-branch') || (row.cells[5]?.textContent || '').trim();
+	      const timestamp = parseInt(row.getAttribute('data-timestamp') || '0', 10) || 0;
+
+	      return allOrders.find(order =>
+	        String(order.invoiceNumber || '') === invoiceNumber &&
+	        (!branch || String(order.branch || '') === branch) &&
+	        (!timestamp || Number(order.timestamp || 0) === timestamp)
+	      ) || allOrders.find(order =>
+	        String(order.invoiceNumber || '') === invoiceNumber &&
+	        (!branch || String(order.branch || '') === branch)
+	      ) || allOrders.find(order => String(order.invoiceNumber || '') === invoiceNumber) || null;
+	    }
+
+	        function exportToExcel() {
+	  const rows = document.querySelectorAll('.order-row');
+	  let totalNet = 0;
   let totalDelivery = 0;
   let totalFinal = 0;
   let data = [];
@@ -2747,9 +3922,8 @@ function renderAccountingContent(section) {
     if (row.style.display !== 'none') {
       const cells = row.cells;
       
-      // استخراج بيانات الطلب من الصف
-      const orderId = cells[0].textContent.trim().replace('#', '');
-      const order = allOrders.find(o => o.invoiceNumber === orderId);
+	      // نستخدم id الحقيقي للطلب حتى لا نخلط بين فواتير لها نفس الرقم في فروع مختلفة.
+	      const order = getOrderFromOrderRow(row);
       
       if (order) {
         // حساب الأسعار
@@ -2864,13 +4038,12 @@ function renderAccountingContent(section) {
   const rows = document.querySelectorAll('.order-row');
   let visibleOrders = [];
   
-  rows.forEach(row => {
-    if (row.style.display !== 'none') {
-      const orderId = row.cells[0].textContent.trim().replace('#', '');
-      const order = allOrders.find(o => o.invoiceNumber === orderId);
-      if (order) {
-        visibleOrders.push(order);
-      }
+	  rows.forEach(row => {
+	    if (row.style.display !== 'none') {
+	      const order = getOrderFromOrderRow(row);
+	      if (order) {
+	        visibleOrders.push(order);
+	      }
     }
   });
   
@@ -2985,11 +4158,8 @@ function renderAccountingContent(section) {
   
   // إضافة كل فاتورة
   visibleOrders.forEach((order, index) => {
-    const deliveryFee = getOrderDeliveryFee(order);
-    const itemsSubtotal = getOrderItemsGrossTotal(order);
-    const discountTotal = getOrderDiscountTotal(order);
-    const netAmount = getOrderItemsNetTotal(order);
-    const grandTotal = netAmount + deliveryFee;
+    const deliveryFee = parseFloat(order.deliveryFee) || parseFloat(order.deliveryPrice) || 0;
+    const netAmount = parseFloat(order.total) - deliveryFee;
     
     allInvoicesHtml += `
       <div class="invoice-page">
@@ -3028,28 +4198,15 @@ function renderAccountingContent(section) {
           <tbody>
             ${(order.items || []).map(item => `
               <tr>
-                <td>
-                  ${item.productName}
-                  ${getItemDiscountAmount(item) > 0 ? `<div style="font-size: 11px; color: #b91c1c;">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
-                </td>
+                <td>${item.productName}</td>
                 <td style="text-align: center;">${item.quantity} ${item.unit}</td>
-                <td style="text-align: left;">${formatNumberWithThreeDecimals(item.total)} د.ك</td>
+                <td style="text-align: left;">${(item.total || 0).toFixed(3)} د.ك</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
         
         <div class="totals">
-          <div class="total-row">
-            <span>مجموع الأصناف:</span>
-            <span>${itemsSubtotal.toFixed(3)} د.ك</span>
-          </div>
-          ${discountTotal > 0 ? `
-          <div class="total-row" style="color: #b91c1c;">
-            <span>المبلغ المخصوم:</span>
-            <span>-${discountTotal.toFixed(3)} د.ك</span>
-          </div>
-          ` : ''}
           <div class="total-row">
             <span>صافي الفاتورة:</span>
             <span>${netAmount.toFixed(3)} د.ك</span>
@@ -3062,7 +4219,7 @@ function renderAccountingContent(section) {
           ` : ''}
           <div class="total-row final">
             <span>الإجمالي:</span>
-            <span>${grandTotal.toFixed(3)} د.ك</span>
+            <span>${parseFloat(order.total).toFixed(3)} د.ك</span>
           </div>
         </div>
         
@@ -3092,11 +4249,6 @@ function renderAccountingContent(section) {
 
     function viewOrder(orderId) {
       const order = allOrders.find(o => o.id === orderId);
-      const deliveryFee = getOrderDeliveryFee(order);
-      const itemsSubtotal = getOrderItemsGrossTotal(order);
-      const discountTotal = getOrderDiscountTotal(order);
-      const itemsNetTotal = getOrderItemsNetTotal(order);
-      const grandTotal = itemsNetTotal + deliveryFee;
       
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
@@ -3123,35 +4275,20 @@ function renderAccountingContent(section) {
               <div class="flex justify-between py-2 border-b border-gray-200">
                 <div>
                   <div class="font-bold">${item.productName}</div>
-                  <div class="text-sm text-gray-600">${formatNumberWithThreeDecimals(item.price)} × ${item.quantity} ${item.unit}</div>
-                  ${getItemDiscountAmount(item) > 0 ? `<div class="text-sm text-red-600">خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك</div>` : ''}
+                  <div class="text-sm text-gray-600">${item.price ? item.price.toFixed(3) : '0.000'} × ${item.quantity} ${item.unit}</div>
                 </div>
-                <div class="font-bold text-blue-600">${formatNumberWithThreeDecimals(item.total)}</div>
+                <div class="font-bold text-blue-600">${item.total ? item.total.toFixed(3) : '0.000'}</div>
               </div>
             `).join('')}
-            <div class="flex justify-between py-2 border-b border-gray-200">
-              <div class="font-bold">مجموع الأصناف</div>
-              <div class="font-bold text-blue-600">${itemsSubtotal.toFixed(3)}</div>
-            </div>
-            ${discountTotal > 0 ? `
-              <div class="flex justify-between py-2 border-b border-gray-200 text-red-600">
-                <div class="font-bold">المبلغ المخصوم</div>
-                <div class="font-bold">-${discountTotal.toFixed(3)}</div>
-              </div>
-            ` : ''}
-            <div class="flex justify-between py-2 border-b border-gray-200">
-              <div class="font-bold">صافي الأصناف</div>
-              <div class="font-bold text-blue-600">${itemsNetTotal.toFixed(3)}</div>
-            </div>
-            ${deliveryFee > 0 ? `
+            ${order.deliveryPrice > 0 ? `
               <div class="flex justify-between py-2 border-b border-gray-200">
                 <div class="font-bold">رسوم التوصيل</div>
-                <div class="font-bold text-blue-600">${deliveryFee.toFixed(3)}</div>
+                <div class="font-bold text-blue-600">${order.deliveryPrice.toFixed(3)}</div>
               </div>
             ` : ''}
             <div class="flex justify-between py-4 text-lg font-bold text-blue-600">
               <div>المجموع الكلي</div>
-              <div>${grandTotal.toFixed(3)} د.ك</div>
+              <div>${order.total ? order.total.toFixed(3) : '0.000'} د.ك</div>
             </div>
           </div>
           
@@ -8229,8 +9366,9 @@ function toggleProductSelection(productId, categoryId) {
                     <option value="أبو الحصانية" ${currentDeviceBranch === 'أبو الحصانية' ? 'selected' : ''}>أبو الحصانية</option>
                     <option value="اليرموك" ${currentDeviceBranch === 'اليرموك' ? 'selected' : ''}>اليرموك</option>
                   </select>
-                  <button onclick="assignCurrentDeviceBranch()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">حفظ</button>
+                  <button onclick="assignCurrentDeviceBranch()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">حفظ الفرع والموقع</button>
                 </div>
+                <div class="text-xs text-gray-500 mt-2">للتعرف التلقائي من الهاتف: افتح هذه الشاشة من جهاز الفرع نفسه، اختر الفرع، ثم اسمح بحفظ الموقع.</div>
               </div>
             </div>
           </div>
@@ -8277,12 +9415,49 @@ function toggleProductSelection(productId, categoryId) {
       `;
     }
     
+    function getKnownRegisteredDevices() {
+      if (allRegisteredDevices.length > 0) return allRegisteredDevices;
+      try {
+        return Object.entries(JSON.parse(localStorage.getItem('allDevices') || '{}')).map(([id, data]) => ({ id, ...data }));
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function getDeviceLocationText(data) {
+      const latitude = parseFloat(data.latitude);
+      const longitude = parseFloat(data.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return 'الموقع غير محفوظ';
+      const accuracy = parseFloat(data.accuracy);
+      return `الموقع محفوظ${Number.isFinite(accuracy) ? ` - الدقة ${Math.round(accuracy)}م` : ''}`;
+    }
+
+    function getCurrentDeviceLocation() {
+      return new Promise(resolve => {
+        if (!navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          position => resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            capturedAt: Date.now()
+          }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+      });
+    }
+
     function renderDevicesList() {
-      const devices = JSON.parse(localStorage.getItem('allDevices') || '{}');
+      const devices = getKnownRegisteredDevices();
       const currentTime = Date.now();
       const onlineThreshold = 5 * 60 * 1000; // 5 minutes
       
-      const devicesList = Object.entries(devices).map(([deviceId, data]) => {
+      const devicesList = devices.map((data) => {
+        const deviceId = data.id;
         const isOnline = data.lastSeen && (currentTime - data.lastSeen) < onlineThreshold;
         const isCurrent = deviceId === getDeviceId();
         
@@ -8298,6 +9473,7 @@ function toggleProductSelection(productId, categoryId) {
                 <div class="text-sm text-gray-600 mt-1">
                   الفرع: <span class="font-bold text-blue-600">${data.branch || 'غير محدد'}</span>
                 </div>
+                <div class="text-xs text-gray-500 mt-1">${getDeviceLocationText(data)}</div>
               </div>
               <button onclick="unassignDevice('${deviceId}')" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition">إلغاء الربط</button>
             </div>
@@ -8308,7 +9484,7 @@ function toggleProductSelection(productId, categoryId) {
       return devicesList || '<div class="text-center text-gray-400 py-4">لا توجد أجهزة معرفة</div>';
     }
     
-    function assignCurrentDeviceBranch() {
+    async function assignCurrentDeviceBranch() {
       const branch = document.getElementById('currentDeviceBranch').value;
       
       if (!branch) {
@@ -8318,28 +9494,48 @@ function toggleProductSelection(productId, categoryId) {
       
       const deviceId = getDeviceId();
       localStorage.setItem('deviceBranch', branch);
+      const location = await getCurrentDeviceLocation();
       
       // Update devices list
       const devices = JSON.parse(localStorage.getItem('allDevices') || '{}');
       devices[deviceId] = {
+        id: deviceId,
         branch: branch,
-        lastSeen: Date.now()
+        lastSeen: Date.now(),
+        updatedAt: Date.now(),
+        userAgent: navigator.userAgent,
+        ...(location || {})
       };
       localStorage.setItem('allDevices', JSON.stringify(devices));
+
+      await db.ref(`registeredDevices/${deviceId}`).update(devices[deviceId]);
       
-      showToast('تم تحديد الفرع للجهاز بنجاح');
+      showToast(location ? 'تم تحديد الفرع وحفظ موقع الجهاز بنجاح' : 'تم تحديد الفرع، لكن لم يتم حفظ الموقع. اسمح بالموقع حتى تتعرف الهواتف على أقرب جهاز بدقة.', !location);
       renderAccounting('devices');
     }
     
     function updateDeviceHeartbeat(deviceId, branch) {
       if (!branch) return;
+      const now = Date.now();
       
       const devices = JSON.parse(localStorage.getItem('allDevices') || '{}');
       devices[deviceId] = {
+        ...(devices[deviceId] || {}),
+        id: deviceId,
         branch: branch,
-        lastSeen: Date.now()
+        lastSeen: now,
+        userAgent: navigator.userAgent
       };
       localStorage.setItem('allDevices', JSON.stringify(devices));
+
+      if (now - lastDeviceHeartbeatAt < 60000) return;
+      lastDeviceHeartbeatAt = now;
+      db.ref(`registeredDevices/${deviceId}`).update({
+        id: deviceId,
+        branch,
+        lastSeen: now,
+        userAgent: navigator.userAgent
+      }).catch(error => console.warn('Device heartbeat skipped:', error));
     }
     
     function unassignDevice(deviceId) {
@@ -8358,10 +9554,11 @@ function toggleProductSelection(productId, categoryId) {
       document.body.appendChild(modal);
     }
     
-    function confirmUnassignDevice(deviceId) {
+    async function confirmUnassignDevice(deviceId) {
       const devices = JSON.parse(localStorage.getItem('allDevices') || '{}');
       delete devices[deviceId];
       localStorage.setItem('allDevices', JSON.stringify(devices));
+      await db.ref(`registeredDevices/${deviceId}`).remove();
       
       // If unassigning current device
       if (deviceId === getDeviceId()) {
@@ -8598,10 +9795,6 @@ async function editOrder(orderId) {
   }
   
   currentEditingOrder = JSON.parse(JSON.stringify(order)); // نسخة للتعديل
-  editOrderDiscountUnlocked = false;
-  editOrderDiscountSelectedIndexes = [];
-  editOrderDiscountPercentDraft = '';
-  normalizeEditingOrderItems();
   
   const modal = document.getElementById('editOrderModal');
   modal.style.display = 'flex';
@@ -8616,161 +9809,15 @@ async function editOrder(orderId) {
   renderEditProducts();
 }
 
-function normalizeEditingOrderItems() {
-  if (!currentEditingOrder || !Array.isArray(currentEditingOrder.items)) return;
-
-  currentEditingOrder.items.forEach(item => {
-    const discountPercent = parseFloat(item.discountPercent) || 0;
-    if (discountPercent > 0) {
-      recalculateEditItemTotals(item);
-      return;
-    }
-
-    const quantity = parseFloat(item.quantity) || 0;
-    const price = parseFloat(item.price) || 0;
-    item.grossTotal = quantity * price;
-    item.discountPercent = 0;
-    item.discountAmount = 0;
-    item.total = parseFloat(item.total) || item.grossTotal;
-  });
-}
-
-function recalculateEditItemTotals(item) {
-  const quantity = parseFloat(item.quantity) || 0;
-  const price = parseFloat(item.price) || 0;
-  const discountPercent = Math.min(Math.max(parseFloat(item.discountPercent) || 0, 0), 100);
-  const grossTotal = quantity * price;
-  const discountAmount = grossTotal * (discountPercent / 100);
-
-  item.grossTotal = grossTotal;
-  item.discountPercent = discountPercent;
-  item.discountAmount = discountAmount;
-  item.total = Math.max(grossTotal - discountAmount, 0);
-}
-
-function unlockEditOrderDiscount() {
-  const password = prompt('أدخل كلمة السر لإضافة الخصم');
-  if (password === null) return;
-
-  if (convertToEnglishNumbers(password).trim() !== EDIT_ORDER_DISCOUNT_PASSWORD) {
-    showToast('كلمة السر غير صحيحة', true);
-    return;
-  }
-
-  editOrderDiscountUnlocked = true;
-  showToast('تم فتح إضافة الخصم');
-  renderEditProducts();
-}
-
-function updateEditDiscountPercentDraft(value) {
-  editOrderDiscountPercentDraft = normalizeDiscountPercentageInput(value);
-  const input = document.getElementById('editDiscountPercent');
-  if (input) input.value = editOrderDiscountPercentDraft;
-}
-
-function toggleEditDiscountSelection(index, checked) {
-  const selected = new Set(editOrderDiscountSelectedIndexes);
-  if (checked) {
-    selected.add(index);
-  } else {
-    selected.delete(index);
-  }
-  editOrderDiscountSelectedIndexes = Array.from(selected).sort((a, b) => a - b);
-  renderEditProducts();
-}
-
-function selectAllEditDiscountItems() {
-  editOrderDiscountSelectedIndexes = currentEditingOrder.items.map((_, index) => index);
-  renderEditProducts();
-}
-
-function applyEditDiscount() {
-  if (!editOrderDiscountUnlocked) {
-    unlockEditOrderDiscount();
-    return;
-  }
-
-  if (editOrderDiscountSelectedIndexes.length === 0) {
-    showToast('اختر صنف واحد على الأقل لتطبيق الخصم', true);
-    return;
-  }
-
-  const discountPercent = parseFloat(editOrderDiscountPercentDraft);
-  if (isNaN(discountPercent) || discountPercent < 0 || discountPercent > 100) {
-    showToast('أدخل نسبة خصم صحيحة من 0 إلى 100', true);
-    return;
-  }
-
-  editOrderDiscountSelectedIndexes.forEach(index => {
-    const item = currentEditingOrder.items[index];
-    if (!item) return;
-    item.discountPercent = discountPercent;
-    recalculateEditItemTotals(item);
-  });
-
-  renderEditProducts();
-  showToast('تم تطبيق الخصم على الأصناف المحددة');
-}
-
-function removeEditItemDiscount(index) {
-  const item = currentEditingOrder.items[index];
-  if (!item) return;
-
-  item.discountPercent = 0;
-  item.discountAmount = 0;
-  recalculateEditItemTotals(item);
-  renderEditProducts();
-}
-
 // عرض المنتجات للتعديل
 function renderEditProducts() {
   const container = document.getElementById('editProductsList');
-  if (!currentEditingOrder) return;
-  
-  const itemsSubtotal = getOrderItemsGrossTotal(currentEditingOrder);
-  const discountTotal = getOrderDiscountTotal(currentEditingOrder);
-  const itemsNetTotal = getOrderItemsNetTotal(currentEditingOrder);
-  const deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee')?.value || currentEditingOrder.deliveryPrice || 0)) || 0;
-  const selectedItemsCount = editOrderDiscountSelectedIndexes.length;
-  const discountControlsHtml = `
-    <div class="mb-4 p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
-      <div class="flex flex-wrap gap-3 items-center justify-between">
-        <div>
-          <div class="font-bold text-yellow-800">خصم الأصناف</div>
-          <div class="text-sm text-yellow-700">يتم تطبيق الخصم على الأصناف المحددة فقط، ولا يشمل رسوم التوصيل.</div>
-        </div>
-        <button onclick="${editOrderDiscountUnlocked ? 'selectAllEditDiscountItems()' : 'unlockEditOrderDiscount()'}" class="${editOrderDiscountUnlocked ? 'bg-blue-600 hover:bg-blue-700' : 'bg-yellow-600 hover:bg-yellow-700'} text-white px-4 py-2 rounded-lg font-bold transition">
-          ${editOrderDiscountUnlocked ? 'تحديد الكل' : 'إضافة خصم'}
-        </button>
-      </div>
-      ${editOrderDiscountUnlocked ? `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-4">
-          <div>
-            <label class="block text-sm font-bold mb-1 text-gray-700">نسبة الخصم %</label>
-            <input type="text" id="editDiscountPercent" value="${editOrderDiscountPercentDraft}" oninput="updateEditDiscountPercentDraft(this.value)" class="w-full p-3 border-2 border-yellow-300 rounded-lg focus:border-yellow-600 focus:outline-none" placeholder="0">
-          </div>
-          <div class="text-sm text-gray-600">المحدد: <strong>${selectedItemsCount}</strong> من ${currentEditingOrder.items.length}</div>
-          <button onclick="applyEditDiscount()" class="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-bold">تطبيق</button>
-        </div>
-      ` : ''}
-    </div>
-  `;
   
   let html = `
-    ${discountControlsHtml}
     <div class="space-y-3">
       ${currentEditingOrder.items.map((item, index) => `
         <div class="flex gap-2 items-center bg-gray-50 p-3 rounded-lg">
-          ${editOrderDiscountUnlocked ? `<input type="checkbox" ${editOrderDiscountSelectedIndexes.includes(index) ? 'checked' : ''} onchange="toggleEditDiscountSelection(${index}, this.checked)" class="w-5 h-5 accent-yellow-600">` : ''}
-          <div class="flex-1 min-w-0">
-            <div class="font-bold">${item.productName}</div>
-            ${getItemDiscountAmount(item) > 0 ? `
-              <div class="text-sm text-red-600">
-                خصم ${formatNumberWithThreeDecimals(item.discountPercent)}%: ${getItemDiscountAmount(item).toFixed(3)} د.ك
-                <button onclick="removeEditItemDiscount(${index})" class="mr-2 text-xs text-red-700 underline">إلغاء الخصم</button>
-              </div>
-            ` : ''}
-          </div>
+          <span class="flex-1 font-bold">${item.productName}</span>
           <input type="number" value="${item.quantity}" onchange="updateEditProduct(${index}, 'quantity', this.value)" class="w-20 p-2 border rounded-lg" step="0.001">
           <select onchange="updateEditProduct(${index}, 'unit', this.value)" class="p-2 border rounded-lg">
             <option value="حبة" ${item.unit === 'حبة' ? 'selected' : ''}>حبة</option>
@@ -8778,7 +9825,7 @@ function renderEditProducts() {
             <option value="كيلو" ${item.unit === 'كيلو' ? 'selected' : ''}>كيلو</option>
           </select>
           <input type="number" value="${item.price}" onchange="updateEditProduct(${index}, 'price', this.value)" class="w-24 p-2 border rounded-lg" step="0.001">
-          <span class="font-bold text-blue-600 w-24 text-center">${formatNumberWithThreeDecimals(item.total)} د.ك</span>
+          <span class="font-bold text-blue-600 w-24 text-center">${(item.total || 0).toFixed(3)} د.ك</span>
           <button onclick="removeEditProduct(${index})" class="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700">حذف</button>
         </div>
       `).join('')}
@@ -8818,28 +9865,8 @@ function renderEditProducts() {
       </div>
     </div>
     
-    <div class="mt-4 p-4 bg-blue-50 rounded-lg space-y-2">
-      <div class="flex justify-between font-bold">
-        <span>مجموع الأصناف:</span>
-        <span class="text-blue-600">${itemsSubtotal.toFixed(3)} د.ك</span>
-      </div>
-      ${discountTotal > 0 ? `
-        <div class="flex justify-between font-bold text-red-600">
-          <span>المبلغ المخصوم:</span>
-          <span>-${discountTotal.toFixed(3)} د.ك</span>
-        </div>
-      ` : ''}
-      <div class="flex justify-between font-bold">
-        <span>صافي الأصناف:</span>
-        <span class="text-blue-600">${itemsNetTotal.toFixed(3)} د.ك</span>
-      </div>
-      ${deliveryFee > 0 ? `
-        <div class="flex justify-between font-bold">
-          <span>رسوم التوصيل:</span>
-          <span class="text-blue-600">${deliveryFee.toFixed(3)} د.ك</span>
-        </div>
-      ` : ''}
-      <div class="flex justify-between text-lg font-bold border-t-2 border-blue-200 pt-2">
+    <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+      <div class="flex justify-between text-lg font-bold">
         <span>الإجمالي:</span>
         <span class="text-blue-600">${calculateEditTotal().toFixed(3)} د.ك</span>
       </div>
@@ -8852,8 +9879,8 @@ function renderEditProducts() {
 // تحديث منتج
 function updateEditProduct(index, field, value) {
   if (field === 'quantity' || field === 'price') {
-    currentEditingOrder.items[index][field] = parseFloat(normalizeDecimalInput(value)) || 0;
-    recalculateEditItemTotals(currentEditingOrder.items[index]);
+    currentEditingOrder.items[index][field] = parseFloat(value) || 0;
+    currentEditingOrder.items[index].total = currentEditingOrder.items[index].quantity * currentEditingOrder.items[index].price;
   } else {
     currentEditingOrder.items[index][field] = value;
   }
@@ -8867,9 +9894,6 @@ function removeEditProduct(index) {
     return;
   }
   currentEditingOrder.items.splice(index, 1);
-  editOrderDiscountSelectedIndexes = editOrderDiscountSelectedIndexes
-    .filter(selectedIndex => selectedIndex !== index)
-    .map(selectedIndex => selectedIndex > index ? selectedIndex - 1 : selectedIndex);
   renderEditProducts();
 }
 
@@ -8890,9 +9914,6 @@ function addEditProduct() {
     quantity: qty,
     unit: unit,
     price: price,
-    grossTotal: qty * price,
-    discountPercent: 0,
-    discountAmount: 0,
     total: qty * price
   };
   
@@ -8908,8 +9929,8 @@ function addEditProduct() {
 
 // حساب الإجمالي
 function calculateEditTotal() {
-  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-  const deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee').value)) || 0;
+  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (item.total || 0), 0);
+  const deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
   return itemsTotal + deliveryFee;
 }
 
@@ -8920,12 +9941,8 @@ async function saveOrderEdit() {
   currentEditingOrder.customerName = document.getElementById('editCustomerName').value.trim();
   currentEditingOrder.phoneNumber = document.getElementById('editPhoneNumber').value.trim();
   currentEditingOrder.address = document.getElementById('editAddress').value.trim();
-  currentEditingOrder.deliveryFee = parseFloat(normalizeDecimalInput(document.getElementById('editDeliveryFee').value)) || 0;
+  currentEditingOrder.deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
   currentEditingOrder.deliveryPrice = currentEditingOrder.deliveryFee;
-  currentEditingOrder.items.forEach(recalculateEditItemTotals);
-  currentEditingOrder.itemsSubtotal = getOrderItemsGrossTotal(currentEditingOrder);
-  currentEditingOrder.discountTotal = getOrderDiscountTotal(currentEditingOrder);
-  currentEditingOrder.itemsNetTotal = getOrderItemsNetTotal(currentEditingOrder);
   currentEditingOrder.total = calculateEditTotal();
 
   // 2. التحقق من صحة البيانات
@@ -8942,15 +9959,7 @@ async function saveOrderEdit() {
   try {
     // 3. الحفظ المباشر في Firebase باستخدام الكائن db المعرف في كودك
     const orderId = currentEditingOrder.id;
-    const updatedOrder = JSON.parse(JSON.stringify(currentEditingOrder));
-    await db.ref(`orders/${orderId}`).set(updatedOrder);
-
-    const existingOrderIndex = allOrders.findIndex(order => order.id === orderId);
-    if (existingOrderIndex >= 0) {
-      allOrders[existingOrderIndex] = updatedOrder;
-    } else {
-      allOrders.push(updatedOrder);
-    }
+    await db.ref(`orders/${orderId}`).set(currentEditingOrder);
 
     // 4. تحديث البيانات محلياً في القائمة العامة
     await loadData(); 
@@ -8971,9 +9980,6 @@ async function saveOrderEdit() {
 function closeEditOrderModal() {
   document.getElementById('editOrderModal').style.display = 'none';
   currentEditingOrder = null;
-  editOrderDiscountUnlocked = false;
-  editOrderDiscountSelectedIndexes = [];
-  editOrderDiscountPercentDraft = '';
 }
 
 let currentEditingOrder = null;
@@ -9069,9 +10075,6 @@ function addSelectedProduct() {
     quantity: qty,
     unit: unit,
     price: price,
-    grossTotal: qty * price,
-    discountPercent: 0,
-    discountAmount: 0,
     total: qty * price
   };
   
@@ -9115,7 +10118,7 @@ function addSelectedProduct() {
           </div>
           <div>
             <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">رسوم التوصيل (د.ك)</label>
-            <input type="text" id="editDeliveryFee" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;" oninput="this.value = normalizeDecimalInput(this.value)" onchange="renderEditProducts()">
+            <input type="number" id="editDeliveryFee" step="0.001" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;" onchange="renderEditProducts()">
           </div>
         </div>
       </div>
