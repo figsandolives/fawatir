@@ -1198,7 +1198,7 @@ function refreshUI() {
       modal.innerHTML = `
         <div class="modal-content p-8 w-96">
           <h2 class="text-2xl font-bold text-blue-600 mb-6">أدخل كلمة المرور</h2>
-          <input type="password" id="passwordInput" placeholder="كلمة المرور" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+          <input type="password" id="passwordInput" placeholder="كلمة المرور" onkeydown="if(event.key === 'Enter') loginAccounting()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
           <div class="flex gap-3">
             <button onclick="loginAccounting()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">دخول</button>
             <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
@@ -1229,7 +1229,7 @@ function refreshUI() {
           </div>
           <div class="mb-4">
             <label class="block mb-2 font-bold text-gray-700">رمز الكاشير</label>
-            <input type="password" id="cashierCode" placeholder="أدخل الرمز" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            <input type="password" id="cashierCode" placeholder="أدخل الرمز" onkeydown="if(event.key === 'Enter') loginCashier()" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
           </div>
           <div class="flex gap-3">
             <button onclick="loginCashier()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">دخول</button>
@@ -1352,7 +1352,8 @@ function refreshUI() {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: null
+        orderType: null,
+        pickupBranch: ''
       };
       
       const page = document.createElement('div');
@@ -1415,7 +1416,8 @@ function refreshUI() {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: null
+        orderType: null,
+        pickupBranch: ''
       };
     }
     
@@ -2095,6 +2097,14 @@ function showNumericKeypadForInvoice(index, inputField) {
                 <input type="text" id="pickupCustomerPhone" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
               </div>
             </div>
+
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+              <select id="pickupBranchSelect" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <option value="">اختر فرع الاستلام</option>
+                ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${currentOrder.pickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+              </select>
+            </div>
           </div>
           
           <div class="flex gap-3 mt-6">
@@ -2114,6 +2124,14 @@ function showNumericKeypadForInvoice(index, inputField) {
       modal.innerHTML = `
         <div class="modal-content p-8 w-full max-w-4xl">
           <h2 class="text-2xl font-bold text-blue-600 mb-6">اختر العميل</h2>
+
+          <div class="mb-4">
+            <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+            <select id="existingPickupBranchSelect" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <option value="">اختر فرع الاستلام</option>
+              ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${currentOrder.pickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+            </select>
+          </div>
           
           <input type="text" id="customerSearchPickup" oninput="filterCustomersPickup()" placeholder="🔍 بحث..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
           
@@ -2143,11 +2161,17 @@ function showNumericKeypadForInvoice(index, inputField) {
     }
     
     function selectCustomerPickup(customerId) {
+      const pickupBranch = (document.getElementById('existingPickupBranchSelect')?.value || '').trim();
+      if (!pickupBranch) {
+        showToast('اختر فرع الاستلام', true);
+        return;
+      }
       const customer = allCustomers.find(c => c.id === customerId);
       currentOrder.customer = {
         name: customer.name,
         phone: customer.phone
       };
+      currentOrder.pickupBranch = pickupBranch;
       document.querySelector('.modal-overlay').remove();
       printAndSaveInvoice();
     }
@@ -2156,9 +2180,14 @@ function showNumericKeypadForInvoice(index, inputField) {
       const name = document.getElementById('pickupCustomerName').value.trim();
       const prefix = document.getElementById('pickupCustomerPrefix').value.trim();
       const phone = document.getElementById('pickupCustomerPhone').value.trim();
+      const pickupBranch = (document.getElementById('pickupBranchSelect')?.value || '').trim();
       
       if (!name || !phone) {
         showToast('الرجاء إدخال الاسم ورقم الهاتف', true);
+        return;
+      }
+      if (!pickupBranch) {
+        showToast('اختر فرع الاستلام', true);
         return;
       }
       
@@ -2166,13 +2195,14 @@ function showNumericKeypadForInvoice(index, inputField) {
         name,
         phone: prefix + phone
       };
+      currentOrder.pickupBranch = pickupBranch;
       
       document.querySelector('.modal-overlay').remove();
       printAndSaveInvoice();
     }
     
     async function printAndSaveInvoice() {
-      // Get branch-specific invoice number
+      // Invoice numbering follows the cashier branch; pickup branch is saved separately.
       const invoiceNumber = await generateInvoiceNumber(currentBranch);
       const timestamp = Date.now();
       
@@ -2198,7 +2228,8 @@ function showNumericKeypadForInvoice(index, inputField) {
         phoneNumber: currentOrder.customer.phone || '',
         orderType: currentOrder.orderType || '',
         paymentMethod: currentOrder.paymentMethod || '',
-        address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : '',
+        pickupBranch: currentOrder.pickupBranch || '',
+        address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : (currentOrder.pickupBranch ? `استلام من فرع ${currentOrder.pickupBranch}` : ''),
         items: cleanedItems,
         deliveryPrice: currentOrder.deliveryPrice || 0,
         notes: currentOrder.notes || '',
@@ -2492,7 +2523,8 @@ function printThermalInvoice(button) {
         items: [],
         customer: null,
         deliveryPrice: 0,
-        orderType: null
+        orderType: null,
+        pickupBranch: ''
       };
       document.querySelector('.modal-overlay').remove();
       currentScreen = 'home';
