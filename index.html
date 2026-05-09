@@ -174,12 +174,14 @@
       align-items: stretch;
       gap: 16px;
       margin-bottom: 24px;
+      direction: ltr;
     }
 
     .invoice-product-search {
       flex: 1;
       min-width: 0;
       margin-bottom: 0;
+      direction: rtl;
     }
 
     .invoice-total-box {
@@ -195,7 +197,6 @@
       gap: 6px;
       direction: ltr;
       padding: 8px 14px;
-      margin-inline-start: auto;
       white-space: nowrap;
     }
 
@@ -219,11 +220,11 @@
 
     @media (max-width: 768px) {
       .invoice-product-toolbar {
-        flex-direction: column-reverse;
+        flex-direction: column;
       }
 
       .invoice-total-box {
-        align-self: flex-end;
+        align-self: flex-start;
       }
     }
 
@@ -1388,11 +1389,11 @@ function refreshUI() {
             <!-- Left side - Products -->
             <div class="flex-1 p-6 overflow-y-auto bg-gray-50">
               <div class="invoice-product-toolbar">
-                <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="invoice-product-search w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-lg">
                 <div id="invoiceTotalBox" class="invoice-total-box" aria-live="polite">
                   <span id="invoiceTotalValue" class="invoice-total-value">0.000</span>
                   <span class="invoice-total-currency">KD</span>
                 </div>
+                <input type="text" id="productSearchBox" oninput="searchProductsInInvoice()" placeholder="🔍 بحث عن منتج..." class="invoice-product-search w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-lg">
               </div>
               
               <div id="categoriesAndProductsContainer">
