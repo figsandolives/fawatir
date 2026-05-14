@@ -288,6 +288,9 @@
       discountAmount: 0
     };
     let selectedProductsForCategory = [];
+    let adminProductCategoryPath = [];
+    let adminProductSearchTerm = '';
+    let adminSelectedProductIds = [];
     let salesReportSearchTerm = '';
     let salesReportSelectedProductId = '';
     let salesReportFromDate = '';
@@ -4567,7 +4570,133 @@ function renderAccountingContent(section) {
     }
 
     // Products Section (rest of accounting functions remain the same...)
+    function getAdminProductSearchText(product) {
+      return normalizeText(`${product?.nameAr || ''} ${product?.nameEn || ''}`);
+    }
+
+    function getChildCategories(parentId) {
+      return allCategories
+        .filter(category => {
+          const categoryParentId = category.parentId || '';
+          return parentId ? categoryParentId === parentId : !categoryParentId;
+        })
+        .sort((a, b) => (a.nameAr || '').localeCompare(b.nameAr || '', 'ar'));
+    }
+
+    function normalizeAdminProductCategoryPath() {
+      const validPath = [];
+      let parentId = '';
+
+      for (const categoryId of adminProductCategoryPath) {
+        const category = allCategories.find(item => {
+          const itemParentId = item.parentId || '';
+          return item.id === categoryId && itemParentId === parentId;
+        });
+
+        if (!category) break;
+
+        validPath.push(categoryId);
+        parentId = categoryId;
+      }
+
+      adminProductCategoryPath = validPath;
+      return adminProductCategoryPath;
+    }
+
+    function getAdminProductSelectedCategoryId() {
+      const path = normalizeAdminProductCategoryPath();
+      return path.length > 0 ? path[path.length - 1] : '';
+    }
+
+    function getAdminProductsForSelectedCategory() {
+      const selectedCategoryId = getAdminProductSelectedCategoryId();
+      if (!selectedCategoryId) return allProducts;
+      return allProducts.filter(product => (product.categoryId || '') === selectedCategoryId);
+    }
+
+    function doesAdminProductMatchSearch(product) {
+      const searchTerm = normalizeText(adminProductSearchTerm);
+      if (!searchTerm) return true;
+      return getAdminProductSearchText(product).includes(searchTerm);
+    }
+
+    function getAdminVisibleProducts() {
+      return getAdminProductsForSelectedCategory().filter(product => doesAdminProductMatchSearch(product));
+    }
+
+    function getAdminSelectedProducts() {
+      const selectedIds = new Set(adminSelectedProductIds);
+      return allProducts.filter(product => selectedIds.has(product.id));
+    }
+
+    function pruneAdminProductSelectionToExistingProducts() {
+      const existingIds = new Set(allProducts.map(product => product.id));
+      adminSelectedProductIds = adminSelectedProductIds.filter(productId => existingIds.has(productId));
+    }
+
+    function pruneAdminProductSelectionToCurrentCategory() {
+      const selectedCategoryId = getAdminProductSelectedCategoryId();
+      if (!selectedCategoryId) {
+        pruneAdminProductSelectionToExistingProducts();
+        return;
+      }
+
+      const categoryProductIds = new Set(getAdminProductsForSelectedCategory().map(product => product.id));
+      adminSelectedProductIds = adminSelectedProductIds.filter(productId => categoryProductIds.has(productId));
+    }
+
+    function renderAdminProductCategoryFilters() {
+      const path = normalizeAdminProductCategoryPath();
+      const levels = [];
+      let parentId = '';
+      let levelIndex = 0;
+
+      while (true) {
+        const categories = getChildCategories(parentId);
+        if (categories.length === 0) break;
+
+        const selectedId = path[levelIndex] || '';
+        levels.push({ categories, selectedId, levelIndex });
+
+        if (!selectedId) break;
+        parentId = selectedId;
+        levelIndex++;
+      }
+
+      if (levels.length === 0) {
+        return '<div class="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">لا توجد تصنيفات مضافة</div>';
+      }
+
+      return levels.map(level => `
+        <select onchange="updateAdminProductCategoryFilter(${level.levelIndex}, this.value)" class="min-w-56 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+          <option value="">${level.levelIndex === 0 ? 'كل التصنيفات' : 'كل التصنيفات الفرعية'}</option>
+          ${level.categories.map(category => `
+            <option value="${category.id}" ${level.selectedId === category.id ? 'selected' : ''}>
+              ${escapeHtml(category.nameAr || 'بدون اسم')}${category.nameEn ? ` / ${escapeHtml(category.nameEn)}` : ''}
+            </option>
+          `).join('')}
+        </select>
+      `).join('');
+    }
+
+    function updateAdminProductCategoryFilter(levelIndex, categoryId) {
+      const nextPath = adminProductCategoryPath.slice(0, levelIndex);
+      if (categoryId) nextPath[levelIndex] = categoryId;
+      adminProductCategoryPath = nextPath;
+      pruneAdminProductSelectionToCurrentCategory();
+      renderAccounting('products');
+    }
+
     function renderProductsSection() {
+      normalizeAdminProductCategoryPath();
+      pruneAdminProductSelectionToCurrentCategory();
+
+      const categoryProducts = getAdminProductsForSelectedCategory();
+      const visibleProducts = getAdminVisibleProducts();
+      const visibleProductIds = visibleProducts.map(product => product.id).filter(Boolean);
+      const allVisibleSelected = visibleProductIds.length > 0 && visibleProductIds.every(productId => adminSelectedProductIds.includes(productId));
+      const selectedCount = adminSelectedProductIds.length;
+
       return `
         <div>
           <div class="flex justify-between items-center mb-6">
@@ -4579,11 +4708,42 @@ function renderAccountingContent(section) {
           </div>
           
           <div class="bg-white p-6 rounded-xl shadow-lg">
-            <input type="text" id="productSearch" placeholder="بحث..." oninput="filterProducts()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">اختيار التصنيف</label>
+              <div class="flex flex-wrap gap-3">
+                ${renderAdminProductCategoryFilters()}
+              </div>
+            </div>
+
+            <input type="text" id="productSearch" value="${escapeHtml(adminProductSearchTerm || '')}" placeholder="بحث..." oninput="filterProducts()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div class="flex flex-wrap gap-3">
+                <button id="adminSelectAllProductsBtn" onclick="toggleSelectAllAdminVisibleProducts()" class="bg-gray-700 text-white px-5 py-2 rounded-lg font-bold hover:bg-gray-800 transition">
+                  ${allVisibleSelected ? 'إلغاء تحديد الكل' : 'تحديد الكل'}
+                </button>
+                <button onclick="clearAdminProductSelection()" class="${selectedCount > 0 ? '' : 'hidden'} bg-gray-200 text-gray-700 px-5 py-2 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء التحديد</button>
+              </div>
+              <div class="text-sm font-bold text-gray-600">
+                المعروض: <span id="adminProductsVisibleCount">${visibleProducts.length}</span> / ${categoryProducts.length}
+              </div>
+            </div>
+
+            ${selectedCount > 0 ? `
+              <div id="adminBulkActionsBar" class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div class="font-bold text-blue-700">تم تحديد ${selectedCount} منتج</div>
+                <div class="flex gap-3">
+                  <button onclick="showBulkPriceEditModal()" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 transition">تعديل</button>
+                  <button onclick="confirmBulkDeleteProducts()" class="bg-red-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-red-700 transition">حذف</button>
+                </div>
+              </div>
+            ` : ''}
+
             <div class="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
+                    <th>تحديد</th>
                     <th>الاسم بالعربي</th>
                     <th>الاسم بالإنجليزي</th>
                     <th>السعر</th>
@@ -4591,17 +4751,29 @@ function renderAccountingContent(section) {
                   </tr>
                 </thead>
                 <tbody id="productsBody">
-                  ${allProducts.map(product => `
-                    <tr class="product-row" data-search="${product.nameAr} ${product.nameEn}">
-                      <td>${product.nameAr}</td>
-                      <td>${product.nameEn}</td>
-                      <td>${product.price ? product.price.toFixed(3) : '0.000'} د.ك</td>
+                  ${categoryProducts.length > 0 ? categoryProducts.map(product => `
+                    <tr class="product-row" data-product-id="${product.id || ''}" data-search="${escapeHtml(getAdminProductSearchText(product))}" style="${doesAdminProductMatchSearch(product) ? '' : 'display: none;'}">
+                      <td>
+                        <input type="checkbox" ${adminSelectedProductIds.includes(product.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleAdminProductSelection('${product.id}', this.checked)" class="w-5 h-5 cursor-pointer">
+                      </td>
+                      <td>${escapeHtml(product.nameAr || '')}</td>
+                      <td>${escapeHtml(product.nameEn || '')}</td>
+                      <td>${formatNumberWithThreeDecimals(product.price)} د.ك</td>
                       <td>
                         <button onclick="editProduct('${product.id}')" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition">تعديل</button>
                         <button onclick="confirmDeleteProduct('${product.id}')" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition">حذف</button>
                       </td>
                     </tr>
-                  `).join('')}
+                  `).join('') : `
+                    <tr>
+                      <td colspan="5" class="text-center text-gray-500 py-8">لا توجد منتجات</td>
+                    </tr>
+                  `}
+                  ${categoryProducts.length > 0 ? `
+                    <tr id="adminProductsNoSearchResults" style="${visibleProducts.length === 0 ? '' : 'display: none;'}">
+                      <td colspan="5" class="text-center text-gray-500 py-8">لا توجد نتائج مطابقة للبحث</td>
+                    </tr>
+                  ` : ''}
                 </tbody>
               </table>
             </div>
@@ -4610,14 +4782,263 @@ function renderAccountingContent(section) {
       `;
     }
 
+    function getAdminVisibleProductRowIds() {
+      return Array.from(document.querySelectorAll('.product-row'))
+        .filter(row => row.style.display !== 'none')
+        .map(row => row.getAttribute('data-product-id'))
+        .filter(Boolean);
+    }
+
+    function updateAdminProductsSelectAllButton() {
+      const button = document.getElementById('adminSelectAllProductsBtn');
+      if (!button) return;
+
+      const visibleIds = getAdminVisibleProductRowIds();
+      const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(productId => adminSelectedProductIds.includes(productId));
+      button.textContent = allVisibleSelected ? 'إلغاء تحديد الكل' : 'تحديد الكل';
+    }
+
     function filterProducts() {
-      const searchTerm = document.getElementById('productSearch').value.toLowerCase();
+      const searchInput = document.getElementById('productSearch');
+      adminProductSearchTerm = searchInput ? searchInput.value : '';
+      const searchTerm = normalizeText(adminProductSearchTerm);
       const rows = document.querySelectorAll('.product-row');
+      let visibleCount = 0;
       
       rows.forEach(row => {
-        const searchData = row.getAttribute('data-search').toLowerCase();
-        row.style.display = searchData.includes(searchTerm) ? '' : 'none';
+        const searchData = normalizeText(row.getAttribute('data-search'));
+        const shouldShow = searchData.includes(searchTerm);
+        row.style.display = shouldShow ? '' : 'none';
+        if (shouldShow) visibleCount++;
       });
+
+      const countElement = document.getElementById('adminProductsVisibleCount');
+      if (countElement) countElement.textContent = visibleCount;
+
+      const noResultsRow = document.getElementById('adminProductsNoSearchResults');
+      if (noResultsRow) noResultsRow.style.display = visibleCount === 0 && rows.length > 0 ? '' : 'none';
+
+      updateAdminProductsSelectAllButton();
+    }
+
+    function toggleAdminProductSelection(productId, isSelected) {
+      if (isSelected) {
+        if (!adminSelectedProductIds.includes(productId)) adminSelectedProductIds.push(productId);
+      } else {
+        adminSelectedProductIds = adminSelectedProductIds.filter(id => id !== productId);
+      }
+
+      pruneAdminProductSelectionToExistingProducts();
+      renderAccounting('products');
+    }
+
+    function toggleSelectAllAdminVisibleProducts() {
+      const visibleIds = getAdminVisibleProductRowIds();
+      if (visibleIds.length === 0) {
+        showToast('لا توجد منتجات معروضة للتحديد', true);
+        return;
+      }
+
+      const allVisibleSelected = visibleIds.every(productId => adminSelectedProductIds.includes(productId));
+      if (allVisibleSelected) {
+        adminSelectedProductIds = adminSelectedProductIds.filter(productId => !visibleIds.includes(productId));
+      } else {
+        const selectedSet = new Set(adminSelectedProductIds);
+        visibleIds.forEach(productId => selectedSet.add(productId));
+        adminSelectedProductIds = Array.from(selectedSet);
+      }
+
+      renderAccounting('products');
+    }
+
+    function clearAdminProductSelection() {
+      adminSelectedProductIds = [];
+      renderAccounting('products');
+    }
+
+    function normalizeAdminNumberText(value) {
+      const digitMap = {
+        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+        '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+        '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9'
+      };
+
+      const normalized = String(value || '')
+        .replace(/[٠-٩۰-۹]/g, digit => digitMap[digit] || digit)
+        .replace(/٫/g, '.')
+        .replace(/٬/g, '')
+        .replace(/,/g, '.')
+        .replace(/[^\d.]/g, '');
+
+      const parts = normalized.split('.');
+      const integerPart = parts.shift() || '';
+      return integerPart + (parts.length > 0 ? `.${parts.join('')}` : '');
+    }
+
+    function normalizeBulkPriceAmountInput(input) {
+      input.value = normalizeAdminNumberText(input.value);
+    }
+
+    function parseAdminPriceAmount(value) {
+      const amount = parseFloat(normalizeAdminNumberText(value));
+      return isNaN(amount) ? NaN : amount;
+    }
+
+    function showBulkPriceEditModal() {
+      const selectedProducts = getAdminSelectedProducts();
+      if (selectedProducts.length === 0) {
+        showToast('الرجاء تحديد منتج واحد على الأقل', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-lg">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">تعديل أسعار المنتجات المحددة</h2>
+          <div class="space-y-4">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 font-bold text-blue-700">
+              عدد المنتجات المحددة: ${selectedProducts.length}
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">نوع التعديل</label>
+              <select id="bulkPriceAction" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <option value="increase">زيادة السعر</option>
+                <option value="decrease">تخفيض السعر</option>
+              </select>
+            </div>
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">قيمة التعديل</label>
+              <input type="text" inputmode="decimal" id="bulkPriceAmount" oninput="normalizeBulkPriceAmountInput(this)" placeholder="0.500" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none" dir="ltr">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="confirmBulkPriceUpdate()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">تطبيق</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function confirmBulkPriceUpdate() {
+      const action = document.getElementById('bulkPriceAction').value;
+      const amount = parseAdminPriceAmount(document.getElementById('bulkPriceAmount').value);
+      const selectedProducts = getAdminSelectedProducts();
+
+      if (selectedProducts.length === 0) {
+        showToast('الرجاء تحديد منتج واحد على الأقل', true);
+        return;
+      }
+
+      if (isNaN(amount) || amount <= 0) {
+        showToast('الرجاء إدخال رقم صحيح أكبر من صفر', true);
+        return;
+      }
+
+      const actionText = action === 'increase' ? 'زيادة' : 'تخفيض';
+      const modal = document.querySelector('.modal-overlay');
+      if (!modal) return;
+
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md text-center">
+          <h2 class="text-2xl font-bold text-blue-600 mb-4">تأكيد تعديل الأسعار</h2>
+          <p class="text-gray-700 mb-6">
+            سيتم ${actionText} سعر ${selectedProducts.length} منتج بقيمة ${amount.toFixed(3)} د.ك.
+            هل تريد المتابعة؟
+          </p>
+          <div class="flex gap-3">
+            <button onclick="applyBulkPriceUpdate('${action}', ${amount})" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">تأكيد</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function applyBulkPriceUpdate(action, amount) {
+      const selectedProducts = getAdminSelectedProducts();
+      if (selectedProducts.length === 0) {
+        showToast('الرجاء تحديد منتج واحد على الأقل', true);
+        return;
+      }
+
+      const updates = {};
+      selectedProducts.forEach(product => {
+        const currentPrice = parseFloat(product.price) || 0;
+        const nextPrice = action === 'increase'
+          ? currentPrice + amount
+          : Math.max(0, currentPrice - amount);
+        updates[`products/${product.id}/price`] = parseFloat(nextPrice.toFixed(3));
+      });
+
+      try {
+        await db.ref().update(updates);
+        selectedProducts.forEach(product => {
+          product.price = updates[`products/${product.id}/price`];
+        });
+        adminSelectedProductIds = [];
+
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
+
+        renderAccounting('products');
+        showToast(`تم ${action === 'increase' ? 'زيادة' : 'تخفيض'} أسعار المنتجات المحددة بنجاح`);
+      } catch (error) {
+        console.error('Error updating bulk product prices:', error);
+        showToast('حدث خطأ أثناء تعديل الأسعار', true);
+      }
+    }
+
+    function confirmBulkDeleteProducts() {
+      const selectedProducts = getAdminSelectedProducts();
+      if (selectedProducts.length === 0) {
+        showToast('الرجاء تحديد منتج واحد على الأقل', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md text-center">
+          <h2 class="text-2xl font-bold text-red-600 mb-4">تأكيد الحذف</h2>
+          <p class="text-gray-700 mb-6">هل أنت متأكد من حذف ${selectedProducts.length} منتج؟</p>
+          <div class="flex gap-3">
+            <button onclick="deleteSelectedProductsConfirmed()" class="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function deleteSelectedProductsConfirmed() {
+      const selectedProducts = getAdminSelectedProducts();
+      if (selectedProducts.length === 0) {
+        showToast('الرجاء تحديد منتج واحد على الأقل', true);
+        return;
+      }
+
+      const updates = {};
+      selectedProducts.forEach(product => {
+        updates[`products/${product.id}`] = null;
+      });
+
+      try {
+        await db.ref().update(updates);
+        const deletedIds = new Set(selectedProducts.map(product => product.id));
+        allProducts = allProducts.filter(product => !deletedIds.has(product.id));
+        adminSelectedProductIds = [];
+
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
+
+        renderAccounting('products');
+        showToast(`تم حذف ${selectedProducts.length} منتج بنجاح`);
+      } catch (error) {
+        console.error('Error deleting selected products:', error);
+        showToast('حدث خطأ أثناء حذف المنتجات', true);
+      }
     }
 
     function showImportExcelModal() {
