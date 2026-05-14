@@ -271,6 +271,7 @@
     let allCustomers = [];
     let allOrders = [];
     let allCashiers = [];
+    let allProductPriceChanges = [];
     let allRegisteredDevices = [];
     let lastDeviceHeartbeatAt = 0;
     let currentCashier = null;
@@ -291,6 +292,9 @@
     let adminProductCategoryPath = [];
     let adminProductSearchTerm = '';
     let adminSelectedProductIds = [];
+    let priceChangeReportFromDate = '';
+    let priceChangeReportToDate = '';
+    let priceChangeReportType = 'all';
     let salesReportSearchTerm = '';
     let salesReportSelectedProductId = '';
     let salesReportFromDate = '';
@@ -877,6 +881,15 @@ function setupRealtimeListeners() {
   // 3. مراقبة المنتجات
   db.ref('products').on('value', (snapshot) => {
     allProducts = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+    refreshUI();
+  });
+
+  // 3.1 مراقبة سجل زيادات وتخفيضات الأسعار
+  db.ref('productPriceChanges').on('value', (snapshot) => {
+    allProductPriceChanges = snapshot.val()
+      ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+      : [];
+    allProductPriceChanges.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     refreshUI();
   });
 
@@ -2557,6 +2570,9 @@ function printThermalInvoice(button) {
               <div class="sidebar-item ${section === 'products' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('products')">
                 🛍️ المنتجات
               </div>
+              <div class="sidebar-item ${section === 'priceChangeReport' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('priceChangeReport')">
+                📊 تقرير الزيادة والتخفيض
+              </div>
               <div class="sidebar-item ${section === 'categories' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('categories')">
                 📁 الأقسام
               </div>
@@ -2623,6 +2639,9 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'products' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('products')">
             🛍️ المنتجات
           </div>
+          <div class="sidebar-item ${section === 'priceChangeReport' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('priceChangeReport')">
+            📊 تقرير الزيادة والتخفيض
+          </div>
           <div class="sidebar-item ${section === 'categories' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('categories')">
             📁 الأقسام
           </div>
@@ -2672,6 +2691,8 @@ function renderAccountingContent(section) {
       return renderCustomersSection();
     case 'products': 
       return renderProductsSection();
+    case 'priceChangeReport':
+      return renderPriceChangeReportSection();
     case 'categories': 
       return renderCategoriesSection();
     case 'inventory':
@@ -2698,6 +2719,316 @@ function renderAccountingContent(section) {
       return '<div class="text-center py-10 text-gray-500">الرجاء اختيار قسم من القائمة</div>';
   }
 }
+
+    // Product Price Change Report
+    function roundCurrencyValue(value) {
+      return parseFloat((parseFloat(value) || 0).toFixed(3));
+    }
+
+    function createProductPriceChangeEntry(product, oldPrice, newPrice, source = 'manual', timestamp = Date.now()) {
+      const previousPrice = roundCurrencyValue(oldPrice);
+      const updatedPrice = roundCurrencyValue(newPrice);
+      const difference = roundCurrencyValue(updatedPrice - previousPrice);
+
+      if (difference === 0) return null;
+
+      const id = generateId();
+      return {
+        id,
+        productId: product.id || '',
+        nameAr: product.nameAr || '',
+        nameEn: product.nameEn || '',
+        oldPrice: previousPrice,
+        newPrice: updatedPrice,
+        difference,
+        type: difference > 0 ? 'increase' : 'decrease',
+        source,
+        timestamp
+      };
+    }
+
+    async function recordProductPriceChange(product, oldPrice, newPrice, source = 'manual') {
+      const entry = createProductPriceChangeEntry(product, oldPrice, newPrice, source);
+      if (!entry) return true;
+
+      try {
+        await db.ref(`productPriceChanges/${entry.id}`).set(entry);
+        return true;
+      } catch (error) {
+        console.error('Error recording product price change:', error);
+        showToast('تم تعديل السعر لكن تعذر حفظه في تقرير الزيادة والتخفيض', true);
+        return false;
+      }
+    }
+
+    function getPriceChangeReportOldPrice(row) {
+      return parseFloat(row.oldPrice ?? row.previousPrice ?? 0) || 0;
+    }
+
+    function getPriceChangeReportNewPrice(row) {
+      return parseFloat(row.newPrice ?? row.updatedPrice ?? 0) || 0;
+    }
+
+    function getPriceChangeReportDifference(row) {
+      const explicitDifference = parseFloat(row.difference);
+      if (!isNaN(explicitDifference)) return explicitDifference;
+      return getPriceChangeReportNewPrice(row) - getPriceChangeReportOldPrice(row);
+    }
+
+    function getPriceChangeType(row) {
+      const difference = getPriceChangeReportDifference(row);
+      return difference >= 0 ? 'increase' : 'decrease';
+    }
+
+    function formatSignedPriceChange(value) {
+      const number = parseFloat(value) || 0;
+      const sign = number >= 0 ? '+' : '-';
+      return `${sign}${Math.abs(number).toFixed(3)}`;
+    }
+
+    function getPriceChangeTypeLabel(type) {
+      if (type === 'increase') return 'الزيادات';
+      if (type === 'decrease') return 'التخفيضات';
+      return 'الكل';
+    }
+
+    function getPriceChangeReportPeriodText() {
+      if (priceChangeReportFromDate && priceChangeReportToDate) {
+        return `من ${priceChangeReportFromDate} إلى ${priceChangeReportToDate}`;
+      }
+      if (priceChangeReportFromDate) return `من ${priceChangeReportFromDate}`;
+      if (priceChangeReportToDate) return `حتى ${priceChangeReportToDate}`;
+      return 'كل التواريخ';
+    }
+
+    function getFilteredPriceChangeRows() {
+      const fromTimestamp = priceChangeReportFromDate
+        ? new Date(`${priceChangeReportFromDate}T00:00:00`).getTime()
+        : null;
+      const toTimestamp = priceChangeReportToDate
+        ? new Date(`${priceChangeReportToDate}T23:59:59.999`).getTime()
+        : null;
+
+      return allProductPriceChanges.filter(row => {
+        const timestamp = parseInt(row.timestamp || 0, 10) || 0;
+        const type = getPriceChangeType(row);
+
+        if (priceChangeReportType !== 'all' && type !== priceChangeReportType) return false;
+        if (fromTimestamp && timestamp < fromTimestamp) return false;
+        if (toTimestamp && timestamp > toTimestamp) return false;
+        return true;
+      });
+    }
+
+    function setPriceChangeReportFilter(field, value) {
+      if (field === 'from') priceChangeReportFromDate = value;
+      if (field === 'to') priceChangeReportToDate = value;
+      if (field === 'type') priceChangeReportType = value || 'all';
+      renderAccounting('priceChangeReport');
+    }
+
+    function clearPriceChangeReportFilters() {
+      priceChangeReportFromDate = '';
+      priceChangeReportToDate = '';
+      priceChangeReportType = 'all';
+      renderAccounting('priceChangeReport');
+    }
+
+    function renderPriceChangeReportSection() {
+      const rows = getFilteredPriceChangeRows();
+      const increaseCount = rows.filter(row => getPriceChangeType(row) === 'increase').length;
+      const decreaseCount = rows.filter(row => getPriceChangeType(row) === 'decrease').length;
+
+      return `
+        <div>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">تقرير الزيادة والتخفيض</h2>
+            <div class="flex gap-3">
+              <button onclick="printPriceChangeReportA4()" class="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">🖨️ طباعة A4</button>
+              <button onclick="exportPriceChangeReportExcel()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">📥 تحميل Excel</button>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
+                <input type="date" value="${priceChangeReportFromDate}" onchange="setPriceChangeReportFilter('from', this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
+                <input type="date" value="${priceChangeReportToDate}" onchange="setPriceChangeReportFilter('to', this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-2 font-bold text-gray-700">نوع التعديل</label>
+                <select onchange="setPriceChangeReportFilter('type', this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                  <option value="all" ${priceChangeReportType === 'all' ? 'selected' : ''}>عرض الكل</option>
+                  <option value="increase" ${priceChangeReportType === 'increase' ? 'selected' : ''}>عرض الزيادات</option>
+                  <option value="decrease" ${priceChangeReportType === 'decrease' ? 'selected' : ''}>عرض التخفيضات</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button onclick="clearPriceChangeReportFilters()" class="w-full bg-gray-200 text-gray-700 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">مسح الفلاتر</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white border border-blue-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">عدد السجلات</div>
+              <div class="text-2xl font-bold text-blue-700">${rows.length}</div>
+            </div>
+            <div class="bg-white border border-green-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">الزيادات</div>
+              <div class="text-2xl font-bold text-green-700">${increaseCount}</div>
+            </div>
+            <div class="bg-white border border-red-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">التخفيضات</div>
+              <div class="text-2xl font-bold text-red-700">${decreaseCount}</div>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>التاريخ</th>
+                    <th>اسم المنتج عربي</th>
+                    <th>اسم المنتج إنجليزي</th>
+                    <th>سعره سابقاً</th>
+                    <th>سعره بعد التعديل</th>
+                    <th>القيمة المضافة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.length > 0 ? rows.map(row => {
+                    const difference = getPriceChangeReportDifference(row);
+                    const differenceClass = difference >= 0 ? 'text-green-700' : 'text-red-700';
+                    return `
+                      <tr>
+                        <td>${row.timestamp ? `${formatDate(row.timestamp)} ${formatTime(row.timestamp)}` : '-'}</td>
+                        <td>${escapeHtml(row.nameAr || '')}</td>
+                        <td>${escapeHtml(row.nameEn || '')}</td>
+                        <td>${formatNumberWithThreeDecimals(getPriceChangeReportOldPrice(row))} د.ك</td>
+                        <td>${formatNumberWithThreeDecimals(getPriceChangeReportNewPrice(row))} د.ك</td>
+                        <td class="${differenceClass} font-bold" dir="ltr">${formatSignedPriceChange(difference)}</td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td colspan="6" class="text-center text-gray-500 py-8">لا توجد تغييرات أسعار حسب الفلاتر المحددة</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function exportPriceChangeReportExcel() {
+      const rows = getFilteredPriceChangeRows();
+      if (rows.length === 0) {
+        showToast('لا توجد بيانات لتصديرها', true);
+        return;
+      }
+
+      const htmlRows = rows.map(row => `
+        <tr>
+          <td>${row.timestamp ? `${formatDate(row.timestamp)} ${formatTime(row.timestamp)}` : '-'}</td>
+          <td>${escapeHtml(row.nameAr || '')}</td>
+          <td>${escapeHtml(row.nameEn || '')}</td>
+          <td>${formatNumberWithThreeDecimals(getPriceChangeReportOldPrice(row))}</td>
+          <td>${formatNumberWithThreeDecimals(getPriceChangeReportNewPrice(row))}</td>
+          <td>${formatSignedPriceChange(getPriceChangeReportDifference(row))}</td>
+        </tr>
+      `).join('');
+
+      const excelHtml = buildExcelHtml(
+        ['التاريخ', 'اسم المنتج عربي', 'اسم المنتج إنجليزي', 'سعره سابقاً', 'سعره بعد التعديل', 'القيمة المضافة'],
+        htmlRows
+      );
+      const today = new Date().toLocaleDateString('ar-SA').replace(/\//g, '-');
+      downloadExcelHtml(excelHtml, `تقرير_الزيادة_والتخفيض_${today}.xls`);
+      showToast('تم تحميل تقرير الزيادة والتخفيض (Excel)');
+    }
+
+    function printPriceChangeReportA4() {
+      const rows = getFilteredPriceChangeRows();
+      if (rows.length === 0) {
+        showToast('لا توجد بيانات للطباعة', true);
+        return;
+      }
+
+      const totalIncrease = rows
+        .filter(row => getPriceChangeType(row) === 'increase')
+        .reduce((sum, row) => sum + getPriceChangeReportDifference(row), 0);
+      const totalDecrease = rows
+        .filter(row => getPriceChangeType(row) === 'decrease')
+        .reduce((sum, row) => sum + Math.abs(getPriceChangeReportDifference(row)), 0);
+      const printedAt = new Date().toLocaleString('ar-SA');
+
+      const contentHtml = `
+        <div class="print-report">
+          <div class="report-header">
+            <div>
+              <h1 class="report-title">تقرير الزيادة والتخفيض</h1>
+              <div class="print-date">تاريخ الطباعة: ${printedAt}</div>
+            </div>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-card">
+              <div class="meta-label">الفترة</div>
+              <div class="meta-value">${getPriceChangeReportPeriodText()}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">نوع العرض</div>
+              <div class="meta-value">${getPriceChangeTypeLabel(priceChangeReportType)}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">عدد السجلات</div>
+              <div class="meta-value">${rows.length}</div>
+            </div>
+          </div>
+
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>التاريخ</th>
+                <th>اسم المنتج عربي</th>
+                <th>اسم المنتج إنجليزي</th>
+                <th>سعره سابقاً</th>
+                <th>سعره بعد التعديل</th>
+                <th>القيمة المضافة</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  <td>${row.timestamp ? `${formatDate(row.timestamp)} ${formatTime(row.timestamp)}` : '-'}</td>
+                  <td>${escapeHtml(row.nameAr || '')}</td>
+                  <td>${escapeHtml(row.nameEn || '')}</td>
+                  <td>${formatNumberWithThreeDecimals(getPriceChangeReportOldPrice(row))} د.ك</td>
+                  <td>${formatNumberWithThreeDecimals(getPriceChangeReportNewPrice(row))} د.ك</td>
+                  <td dir="ltr">${formatSignedPriceChange(getPriceChangeReportDifference(row))}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="summary-strip">
+            إجمالي الزيادات: +${formatNumberWithThreeDecimals(totalIncrease)} د.ك |
+            إجمالي التخفيضات: -${formatNumberWithThreeDecimals(totalDecrease)} د.ك |
+            الفترة: ${getPriceChangeReportPeriodText()}
+          </div>
+        </div>
+      `;
+
+      openA4PrintWindow('تقرير الزيادة والتخفيض', contentHtml);
+    }
 
     // Orders Section
     function renderOrdersSection() {
@@ -4964,18 +5295,37 @@ function renderAccountingContent(section) {
       }
 
       const updates = {};
+      const timestamp = Date.now();
+      const changedPricesByProductId = {};
+      let changedCount = 0;
+
       selectedProducts.forEach(product => {
         const currentPrice = parseFloat(product.price) || 0;
         const nextPrice = action === 'increase'
           ? currentPrice + amount
           : Math.max(0, currentPrice - amount);
-        updates[`products/${product.id}/price`] = parseFloat(nextPrice.toFixed(3));
+        const roundedNextPrice = roundCurrencyValue(nextPrice);
+        const changeEntry = createProductPriceChangeEntry(product, currentPrice, roundedNextPrice, 'bulk', timestamp);
+
+        if (changeEntry) {
+          updates[`products/${product.id}/price`] = roundedNextPrice;
+          updates[`productPriceChanges/${changeEntry.id}`] = changeEntry;
+          changedPricesByProductId[product.id] = roundedNextPrice;
+          changedCount++;
+        }
       });
+
+      if (changedCount === 0) {
+        showToast('لم تتغير الأسعار لأن القيم الحالية لا تسمح بهذا التعديل', true);
+        return;
+      }
 
       try {
         await db.ref().update(updates);
         selectedProducts.forEach(product => {
-          product.price = updates[`products/${product.id}/price`];
+          if (changedPricesByProductId[product.id] !== undefined) {
+            product.price = changedPricesByProductId[product.id];
+          }
         });
         adminSelectedProductIds = [];
 
@@ -4983,7 +5333,7 @@ function renderAccountingContent(section) {
         if (modal) modal.remove();
 
         renderAccounting('products');
-        showToast(`تم ${action === 'increase' ? 'زيادة' : 'تخفيض'} أسعار المنتجات المحددة بنجاح`);
+        showToast(`تم ${action === 'increase' ? 'زيادة' : 'تخفيض'} أسعار ${changedCount} منتج بنجاح`);
       } catch (error) {
         console.error('Error updating bulk product prices:', error);
         showToast('حدث خطأ أثناء تعديل الأسعار', true);
@@ -5363,12 +5713,14 @@ function renderAccountingContent(section) {
       }
       
       const product = allProducts.find(p => p.id === productId);
+      const oldPrice = parseFloat(product.price) || 0;
       product.nameAr = nameAr;
       product.nameEn = nameEn;
       product.price = price;
       
       const success = await saveProduct(product);
       if (success) {
+        await recordProductPriceChange(product, oldPrice, price, 'manual');
         showToast('تم تعديل المنتج بنجاح');
         document.querySelector('.modal-overlay').remove();
         renderAccounting('products');
