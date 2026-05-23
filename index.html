@@ -374,9 +374,69 @@
     }
 
     async function loadData() {
-  console.log("البيانات يتم تحديثها تلقائياً عبر نظام المراقب اللحظي.");
-  return true; 
-}
+      const toArray = (snapshot) => snapshot.val()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+        : [];
+
+      try {
+        const [
+          ordersSnapshot,
+          cashiersSnapshot,
+          productsSnapshot,
+          productPriceChangesSnapshot,
+          registeredDevicesSnapshot,
+          customersSnapshot,
+          categoriesSnapshot,
+          inventoryCategoriesSnapshot,
+          inventoryUnitsSnapshot,
+          issueCashiersSnapshot,
+          inventoryIssuesSnapshot,
+          inventoryTransfersSnapshot,
+          inventorySuppliersSnapshot,
+          inventoryPurchasesSnapshot
+        ] = await Promise.all([
+          db.ref('orders').once('value'),
+          db.ref('cashiers').once('value'),
+          db.ref('products').once('value'),
+          db.ref('productPriceChanges').once('value'),
+          db.ref('registeredDevices').once('value'),
+          db.ref('customers').once('value'),
+          db.ref('categories').once('value'),
+          db.ref('inventoryCategories').once('value'),
+          db.ref('inventoryUnits').once('value'),
+          db.ref('inventoryIssueCashiers').once('value'),
+          db.ref('inventoryIssues').once('value'),
+          db.ref('inventoryTransfers').once('value'),
+          db.ref('inventorySuppliers').once('value'),
+          db.ref('inventoryPurchases').once('value')
+        ]);
+
+        allOrders = toArray(ordersSnapshot);
+        allCashiers = toArray(cashiersSnapshot);
+        allProducts = toArray(productsSnapshot);
+        allProductPriceChanges = toArray(productPriceChangesSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        allRegisteredDevices = toArray(registeredDevicesSnapshot);
+        allCustomers = toArray(customersSnapshot);
+        allCategories = toArray(categoriesSnapshot);
+        allInventoryCategories = toArray(inventoryCategoriesSnapshot).map(category => ({
+          ...category,
+          productIds: Array.isArray(category.productIds)
+            ? category.productIds
+            : (category.productIds ? Object.values(category.productIds) : [])
+        }));
+        allInventoryUnits = toArray(inventoryUnitsSnapshot);
+        allIssueCashiers = toArray(issueCashiersSnapshot);
+        allInventoryIssues = toArray(inventoryIssuesSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        allInventoryTransfers = toArray(inventoryTransfersSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        allInventorySuppliers = toArray(inventorySuppliersSnapshot);
+        allInventoryPurchases = toArray(inventoryPurchasesSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        return true;
+      } catch (error) {
+        console.error('Error loading data:', error);
+        showToast('تعذر تحميل البيانات. تحقق من الاتصال ثم حدث الصفحة', true);
+        return false;
+      }
+    }
 
     function formatDate(timestamp) {
       const date = new Date(timestamp);
@@ -9332,18 +9392,24 @@ function toggleProductSelection(productId, categoryId) {
     }
     
     async function confirmUnassignDevice(deviceId) {
+      const isCurrentDevice = deviceId === getDeviceId();
       const devices = JSON.parse(localStorage.getItem('allDevices') || '{}');
       delete devices[deviceId];
       localStorage.setItem('allDevices', JSON.stringify(devices));
-      await db.ref(`registeredDevices/${deviceId}`).remove();
       
-      // If unassigning current device
-      if (deviceId === getDeviceId()) {
+      if (isCurrentDevice) {
         localStorage.removeItem('deviceBranch');
+        localStorage.removeItem('deviceId');
+      }
+
+      try {
+        await db.ref(`registeredDevices/${deviceId}`).remove();
+      } catch (error) {
+        console.warn('Unable to remove registered device from Firebase:', error);
       }
       
       document.querySelector('.modal-overlay').remove();
-      showToast('تم إلغاء ربط الجهاز');
+      showToast(isCurrentDevice ? 'تم إلغاء ربط هذا الجهاز. يرجى تعريفه مرة أخرى' : 'تم إلغاء ربط الجهاز');
       renderAccounting('devices');
     }
 
