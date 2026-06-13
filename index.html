@@ -2102,8 +2102,8 @@ function showNumericKeypadForInvoice(index, inputField) {
               <div id="deliveryScheduleText" class="text-xs text-green-800 mt-3 font-semibold"></div>
               <div class="mt-4">
                 <label class="block mb-2 font-bold text-gray-700">رسوم التوصيل (د.ك)</label>
-                <input type="text" id="deliveryPrice" value="${deliveryPriceValue === '' ? '' : formatNumberWithThreeDecimals(deliveryPriceValue)}" readonly class="w-full p-3 border-2 border-gray-200 rounded-lg bg-gray-100 text-gray-700 cursor-not-allowed">
-                <div class="text-xs text-gray-500 mt-2">يتم تحديد الرسوم تلقائياً من صفحة أسعار التوصيل حسب منطقة العميل.</div>
+                <input type="text" id="deliveryPrice" value="${deliveryPriceValue === '' ? '' : formatNumberWithThreeDecimals(deliveryPriceValue)}" oninput="this.value = convertToEnglishNumbers(this.value); currentOrder.deliveryPrice = parseFloat(this.value) || 0" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <div class="text-xs text-gray-500 mt-2">يظهر السعر تلقائياً حسب المنطقة، ويمكن تعديله هنا وسيتم حفظه كسعر أساسي للمرات القادمة.</div>
               </div>
             </div>
           </div>
@@ -2230,7 +2230,23 @@ function showNumericKeypadForInvoice(index, inputField) {
         : '';
     }
 
-    function finalizeOrderTypeStep() {
+    async function saveEditedDeliveryPriceForSelectedArea() {
+      const area = currentOrder.selectedAddress?.area || '';
+      if (!area) return;
+      const price = parseFloat(convertToEnglishNumbers(document.getElementById('deliveryPrice')?.value || '0')) || 0;
+      const payload = {
+        area,
+        price: parseFloat(price.toFixed(3)),
+        updatedAt: Date.now()
+      };
+      await db.ref(`deliveryPrices/${area}`).set(payload);
+      allDeliveryPrices = {
+        ...(allDeliveryPrices || {}),
+        [area]: payload
+      };
+    }
+
+    async function finalizeOrderTypeStep() {
       if (!currentOrder.orderType) {
         showToast('الرجاء اختيار توصيل أو استلام', true);
         return;
@@ -2240,10 +2256,13 @@ function showNumericKeypadForInvoice(index, inputField) {
         currentOrder.selectedAddress = currentOrder.selectedAddress
           ? { area: currentOrder.selectedAddress.area || '', details: currentOrder.selectedAddress.details || '' }
           : null;
-        const resolvedPrice = getResolvedDeliveryPriceForArea(currentOrder.selectedAddress?.area || '');
-        currentOrder.deliveryPrice = resolvedPrice === '' || isNaN(resolvedPrice)
-          ? (parseFloat(convertToEnglishNumbers(document.getElementById('deliveryPrice')?.value || '0')) || 0)
-          : resolvedPrice;
+        currentOrder.deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('deliveryPrice')?.value || '0')) || 0;
+        try {
+          await saveEditedDeliveryPriceForSelectedArea();
+        } catch (error) {
+          console.error('Error saving delivery area price:', error);
+          showToast('تعذر حفظ سعر التوصيل للمنطقة، لكن سيتم إكمال الفاتورة', true);
+        }
         currentOrder.deliveryDate = document.getElementById('deliveryDateInput')?.value || '';
         currentOrder.deliveryTimeFrom = document.getElementById('deliveryFromInput')?.value || '';
         currentOrder.deliveryTimeTo = document.getElementById('deliveryToInput')?.value || '';
