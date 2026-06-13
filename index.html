@@ -272,19 +272,29 @@
     let allOrders = [];
     let allCashiers = [];
     let allProductPriceChanges = [];
+    let allDeliveryPrices = {};
+    let allDailySessions = [];
     let allRegisteredDevices = [];
     let lastDeviceHeartbeatAt = 0;
     let currentCashier = null;
     let currentBranch = null;
+    let currentDailySession = null;
+    let dailyInvoiceSearchTerm = '';
     let currentOrder = {
       items: [],
       customer: null,
       deliveryPrice: 0,
-	      orderType: '',
-	      paymentMethod: '',
-	      selectedAddress: null,
-	      pickupBranch: '',
-	      discountType: 'none',
+      orderType: '',
+      paymentMethod: '',
+      selectedAddress: null,
+      deliveryTimingType: 'within2',
+      deliveryDate: '',
+      deliveryTimeFrom: '',
+      deliveryTimeTo: '',
+      pickupBranch: '',
+      cashReceived: 0,
+      cashChange: 0,
+      discountType: 'none',
       discountValue: 0,
       discountAmount: 0
     };
@@ -384,6 +394,8 @@
           cashiersSnapshot,
           productsSnapshot,
           productPriceChangesSnapshot,
+          deliveryPricesSnapshot,
+          dailySessionsSnapshot,
           registeredDevicesSnapshot,
           customersSnapshot,
           categoriesSnapshot,
@@ -399,6 +411,8 @@
           db.ref('cashiers').once('value'),
           db.ref('products').once('value'),
           db.ref('productPriceChanges').once('value'),
+          db.ref('deliveryPrices').once('value'),
+          db.ref('dailySessions').once('value'),
           db.ref('registeredDevices').once('value'),
           db.ref('customers').once('value'),
           db.ref('categories').once('value'),
@@ -415,6 +429,8 @@
         allCashiers = toArray(cashiersSnapshot);
         allProducts = toArray(productsSnapshot);
         allProductPriceChanges = toArray(productPriceChangesSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        allDeliveryPrices = deliveryPricesSnapshot.val() || {};
+        allDailySessions = toArray(dailySessionsSnapshot).sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
         allRegisteredDevices = toArray(registeredDevicesSnapshot);
         allCustomers = toArray(customersSnapshot);
         allCategories = toArray(categoriesSnapshot);
@@ -953,6 +969,21 @@ function setupRealtimeListeners() {
     refreshUI();
   });
 
+  db.ref('deliveryPrices').on('value', (snapshot) => {
+    allDeliveryPrices = snapshot.val() || {};
+    refreshUI();
+  });
+
+  db.ref('dailySessions').on('value', (snapshot) => {
+    allDailySessions = snapshot.val()
+      ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })).sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0))
+      : [];
+    if (currentDailySession) {
+      currentDailySession = allDailySessions.find(session => session.id === currentDailySession.id) || currentDailySession;
+    }
+    refreshUI();
+  });
+
   // 4. مراقبة الأجهزة المعرفة وفروعها لاستخدامها في التعرف على أقرب فرع لنسخة الهاتف
   db.ref('registeredDevices').on('value', (snapshot) => {
     allRegisteredDevices = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
@@ -1331,6 +1362,82 @@ function refreshUI() {
       renderAccounting('orders');
     }
 
+    function isYarmoukCashierSession() {
+      return currentBranch === 'اليرموك' && currentCashier;
+    }
+
+    function hasOpenDailySession() {
+      return currentDailySession && currentDailySession.status === 'open';
+    }
+
+    async function loadActiveDailySession() {
+      if (!isYarmoukCashierSession()) {
+        currentDailySession = null;
+        return null;
+      }
+      const snapshot = await db.ref('dailySessions').once('value');
+      const sessions = snapshot.val()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+        : [];
+      allDailySessions = sessions.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
+      currentDailySession = allDailySessions.find(session =>
+        session.status === 'open' &&
+        session.branch === currentBranch &&
+        session.cashierCode === currentCashier.code
+      ) || null;
+      return currentDailySession;
+    }
+
+    function showOpenDailySessionModal() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md text-center">
+          <h2 class="text-2xl font-bold text-blue-600 mb-3">فتح اليومية</h2>
+          <p class="text-gray-600 mb-6">اكتب المبلغ الموجود في الكاشير قبل بداية العمل.</p>
+          <label class="block mb-2 font-bold text-gray-700 text-right">مبلغ بداية الكاش (د.ك)</label>
+          <input
+            type="text"
+            id="dailyOpeningAmount"
+            oninput="this.value = convertToEnglishNumbers(this.value)"
+            class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none text-xl font-bold text-center mb-5"
+            placeholder="0.000"
+          >
+          <button onclick="openDailySession()" class="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">فتح اليومية</button>
+          <button onclick="this.closest('.modal-overlay').remove(); confirmLogoutCashier(true)" class="w-full mt-3 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">خروج</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      setTimeout(() => document.getElementById('dailyOpeningAmount')?.focus(), 50);
+    }
+
+    async function openDailySession() {
+      const openingAmount = parseFloat(convertToEnglishNumbers(document.getElementById('dailyOpeningAmount')?.value || '0')) || 0;
+      const id = generateId();
+      const session = {
+        id,
+        branch: currentBranch,
+        cashierName: currentCashier.name || '',
+        cashierCode: currentCashier.code || '',
+        openedAt: Date.now(),
+        openingAmount,
+        status: 'open',
+        payments: []
+      };
+
+      try {
+        await db.ref(`dailySessions/${id}`).set(session);
+        currentDailySession = session;
+        allDailySessions.unshift(session);
+        document.querySelector('.modal-overlay')?.remove();
+        renderCashier();
+        showToast('تم فتح اليومية');
+      } catch (error) {
+        console.error('Error opening daily session:', error);
+        showToast('تعذر فتح اليومية', true);
+      }
+    }
+
     async function loginCashier() {
       const code = document.getElementById('cashierCode').value;
       const deviceBranch = localStorage.getItem('deviceBranch');
@@ -1348,7 +1455,15 @@ function refreshUI() {
       currentBranch = deviceBranch;
       document.querySelector('.modal-overlay').remove();
       currentScreen = 'cashier';
+      if (currentBranch === 'اليرموك') {
+        await loadActiveDailySession();
+      } else {
+        currentDailySession = null;
+      }
       renderCashier();
+	      if (currentBranch === 'اليرموك' && !hasOpenDailySession()) {
+	        showOpenDailySessionModal();
+	      }
     }
     
     function getDeviceId() {
@@ -1362,17 +1477,35 @@ function refreshUI() {
 
     // ==================== CASHIER INTERFACE ====================
     
+    function setDailyInvoiceSearchTerm(value) {
+      dailyInvoiceSearchTerm = convertToEnglishNumbers(value || '').replace(/[^\d]/g, '');
+      const input = document.getElementById('dailyInvoiceSearchInput');
+      if (input && input.value !== dailyInvoiceSearchTerm) input.value = dailyInvoiceSearchTerm;
+      renderCashier();
+    }
+
     function renderCashier() {
       const app = document.getElementById('app');
+      const visibleOrders = allOrders
+        .filter(o => o.branch === currentBranch)
+        .filter(o => !dailyInvoiceSearchTerm || (o.invoiceNumber || '').toString().includes(dailyInvoiceSearchTerm))
+        .sort((a, b) => b.timestamp - a.timestamp);
       
       app.innerHTML = `
         <div class="flex flex-col h-full bg-gray-100">
           <!-- Header -->
           <div class="no-print bg-blue-600 text-white p-4 flex justify-between items-center">
            <div class="text-xl font-bold">${currentCashier.name} (${currentBranch})</div>
-            <button onclick="logoutCashier()" class="bg-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition">
-              🚪 خروج
-            </button>
+            <div class="flex gap-3">
+	              ${currentBranch === 'اليرموك' && hasOpenDailySession() ? `
+	                <button onclick="showDailyBalanceStart()" class="bg-amber-500 px-4 py-2 rounded-lg font-bold hover:bg-amber-600 transition">
+	                  موازنة
+	                </button>
+	              ` : ''}
+              <button onclick="logoutCashier()" class="bg-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition">
+                🚪 خروج
+              </button>
+            </div>
           </div>
           
           <!-- Main Content -->
@@ -1380,10 +1513,31 @@ function refreshUI() {
             <div class="max-w-6xl mx-auto">
               <div class="flex justify-between items-center mb-6">
                 <h2 class="text-3xl font-bold text-gray-800">الطلبات</h2>
-                <button onclick="showNewInvoicePage()" class="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition">
+                <button onclick="startNewInvoiceFromCashier()" class="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition">
                   ➕ فاتورة جديدة
                 </button>
               </div>
+              ${currentBranch === 'اليرموك' && hasOpenDailySession() ? `
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-5 text-blue-800 font-bold">
+                  اليومية مفتوحة من ${formatTime(currentDailySession.openedAt)} | مبلغ البداية: ${formatNumberWithThreeDecimals(currentDailySession.openingAmount)} د.ك
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-4 mb-5">
+                  <label class="block mb-2 font-bold text-gray-700">بحث برقم الفاتورة</label>
+                  <div class="flex gap-3">
+                    <input
+                      type="text"
+                      id="dailyInvoiceSearchInput"
+                      value="${escapeHtml(dailyInvoiceSearchTerm)}"
+                      oninput="this.value = convertToEnglishNumbers(this.value).replace(/[^\\d]/g, '')"
+                      onkeydown="if(event.key === 'Enter') setDailyInvoiceSearchTerm(this.value)"
+                      placeholder="اكتب رقم الفاتورة"
+                      class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                    >
+                    <button onclick="setDailyInvoiceSearchTerm(document.getElementById('dailyInvoiceSearchInput')?.value || '')" class="bg-blue-600 text-white px-5 py-3 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+                    <button onclick="setDailyInvoiceSearchTerm('')" class="bg-gray-200 text-gray-700 px-5 py-3 rounded-lg font-bold hover:bg-gray-300 transition">مسح</button>
+                  </div>
+                </div>
+              ` : ''}
               
               <div class="bg-white rounded-xl shadow-lg p-6">
                 <div class="overflow-x-auto">
@@ -1394,19 +1548,36 @@ function refreshUI() {
                         <th>العميل</th>
                         <th>التاريخ</th>
                         <th>المجموع</th>
+                        ${currentBranch === 'اليرموك' ? '<th>المندوب</th>' : ''}
                         <th>الإجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
-  ${allOrders
-    .filter(o => o.branch === currentBranch) // تصفية حسب الفرع أولاً
-    .sort((a, b) => b.timestamp - a.timestamp) // الترتيب من الأحدث (الأكبر) إلى الأقدم (الأصغر)
-    .map(order => `
+  ${visibleOrders.map(order => `
     <tr>
       <td>${order.invoiceNumber}</td>
       <td>${order.customerName}</td>
       <td>${formatDate(order.timestamp)} ${formatTime(order.timestamp)}</td>
       <td>${order.total.toFixed(3)} د.ك</td>
+      ${currentBranch === 'اليرموك' ? `
+        <td>
+          ${order.orderType === 'delivery' && hasOpenDailySession() && order.dailySessionId === currentDailySession?.id ? `
+            ${(order.courierHandoverStarted || order.courierName) ? `
+              <input
+                type="text"
+                value="${escapeHtml(order.courierName || '')}"
+                onchange="updateOrderCourierName('${order.id}', this.value)"
+                placeholder="اسم المندوب"
+                class="w-36 p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+              >
+            ` : `
+              <button onclick="markOrderHandedToCourier('${order.id}')" class="bg-green-600 text-white px-3 py-2 rounded-lg font-bold hover:bg-green-700 transition">
+                تم تسليمه للمندوب
+              </button>
+            `}
+          ` : '-'}
+        </td>
+      ` : ''}
       <td>
         <button onclick="reprintInvoice('${order.id}')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
           🖨️ طباعة
@@ -1424,15 +1595,39 @@ function refreshUI() {
       `;
     }
     
+    function startNewInvoiceFromCashier() {
+      if (currentBranch === 'اليرموك' && !hasOpenDailySession()) {
+        showToast('يجب فتح اليومية أولاً', true);
+        showOpenDailySessionModal();
+        return;
+      }
+      showNewInvoicePage();
+    }
+
     function showNewInvoicePage() {
       currentOrder = {
         items: [],
         customer: null,
         deliveryPrice: 0,
         orderType: null,
-        pickupBranch: ''
+        paymentMethod: '',
+        selectedAddress: null,
+        deliveryTimingType: 'within2',
+        deliveryDate: '',
+        deliveryTimeFrom: '',
+        deliveryTimeTo: '',
+        pickupBranch: '',
+        cashReceived: 0,
+        cashChange: 0
       };
-      
+
+      showInvoiceCustomerSelection(true);
+    }
+
+    function showInvoiceProductsPage() {
+      const existingPage = document.getElementById('invoicePage');
+      if (existingPage) existingPage.remove();
+
       const page = document.createElement('div');
       page.className = 'invoice-page';
       page.id = 'invoicePage';
@@ -1456,7 +1651,7 @@ function refreshUI() {
               </div>
               
               <div class="p-4 border-t border-gray-300">
-                <button id="nextButton" onclick="showOrderTypeSelection()" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
+                <button id="nextButton" onclick="goNextFromProducts()" disabled class="w-full bg-gray-400 text-white px-6 py-3 rounded-lg font-bold cursor-not-allowed">
                   التالي
                 </button>
               </div>
@@ -1482,6 +1677,7 @@ function refreshUI() {
       
       document.body.appendChild(page);
       updateInvoicePricingBox();
+      updateSelectedItemsDisplay();
     }
     
     function closeInvoicePage() {
@@ -1494,8 +1690,28 @@ function refreshUI() {
         customer: null,
         deliveryPrice: 0,
         orderType: null,
-        pickupBranch: ''
+        paymentMethod: '',
+        selectedAddress: null,
+        deliveryTimingType: 'within2',
+        deliveryDate: '',
+        deliveryTimeFrom: '',
+        deliveryTimeTo: '',
+        pickupBranch: '',
+        cashReceived: 0,
+        cashChange: 0
       };
+    }
+
+    function goNextFromProducts() {
+      if (currentOrder.items.length === 0) {
+        showToast('الرجاء اختيار منتج واحد على الأقل', true);
+        return;
+      }
+      if (!currentOrder.customer) {
+        showInvoiceCustomerSelection(false);
+        return;
+      }
+      showOrderTypeSelection();
     }
     
     function renderCategoriesForInvoice() {
@@ -1588,6 +1804,84 @@ function refreshUI() {
       const totalBox = document.getElementById('invoiceTotalBox');
       if (!totalBox) return;
       totalBox.classList.toggle('hidden', !isVisible);
+    }
+
+    function getDefaultDeliveryWindow() {
+      const now = new Date();
+      const start = new Date(now.getTime() + 60 * 60 * 1000);
+      const end = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      const pad = (value) => String(value).padStart(2, '0');
+      const dateValue = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const toTimeValue = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      return {
+        date: dateValue,
+        from: toTimeValue(start),
+        to: toTimeValue(end)
+      };
+    }
+
+    function formatDeliveryDisplayTime(timeValue) {
+      if (!timeValue) return '-';
+      const [hourPart, minutePart = '00'] = timeValue.split(':');
+      const hour = parseInt(hourPart, 10);
+      if (isNaN(hour)) return timeValue;
+      const period = hour >= 12 ? 'مساءً' : 'صباحاً';
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:${minutePart} ${period}`;
+    }
+
+    function getDeliveryAreaFromAddress(address) {
+      const cleanAddress = (address || '').toString().trim();
+      if (!cleanAddress) return '';
+      const firstPart = cleanAddress.split(' - ')[0].trim();
+      return areas.includes(firstPart) ? firstPart : firstPart;
+    }
+
+    function getInferredDeliveryPrices() {
+      const inferred = {};
+      allOrders
+        .filter(order => order && order.orderType === 'delivery')
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .forEach(order => {
+          const area = getDeliveryAreaFromAddress(order.address);
+          const price = parseFloat(order.deliveryPrice ?? order.deliveryFee ?? 0);
+          if (area && price > 0 && inferred[area] === undefined) {
+            inferred[area] = price;
+          }
+        });
+      return inferred;
+    }
+
+    function getSavedDeliveryPriceForArea(area) {
+      if (!area || !allDeliveryPrices) return '';
+      const row = allDeliveryPrices[area];
+      if (row === undefined || row === null) return '';
+      const value = typeof row === 'object' ? row.price : row;
+      return value === '' || value === undefined || value === null ? '' : parseFloat(value);
+    }
+
+    function getResolvedDeliveryPriceForArea(area) {
+      const saved = getSavedDeliveryPriceForArea(area);
+      if (saved !== '' && !isNaN(saved)) return saved;
+      const inferred = getInferredDeliveryPrices();
+      const inferredValue = inferred[area];
+      return inferredValue === undefined ? '' : inferredValue;
+    }
+
+    function applyDeliveryPriceFromSelectedAddress() {
+      const area = currentOrder.selectedAddress?.area || '';
+      const price = getResolvedDeliveryPriceForArea(area);
+      currentOrder.deliveryPrice = price === '' || isNaN(price) ? 0 : price;
+      return price;
+    }
+
+    function continueInvoiceAfterCustomerSelection() {
+      document.querySelector('.modal-overlay')?.remove();
+      if (currentOrder.items.length > 0) {
+        showOrderTypeSelection();
+      } else {
+        showInvoiceProductsPage();
+      }
     }
     
     function addProductToInvoice(productId) {
@@ -1751,45 +2045,89 @@ function showNumericKeypadForInvoice(index, inputField) {
 
     
      function showOrderTypeSelection() {
+      if (!currentOrder.customer) {
+        showInvoiceCustomerSelection(false);
+        return;
+      }
+      if (currentOrder.items.length === 0) {
+        showInvoiceProductsPage();
+        return;
+      }
       setInvoicePricingBoxVisible(false);
+      const deliveryWindow = getDefaultDeliveryWindow();
+      const scheduleDate = currentOrder.deliveryDate || deliveryWindow.date;
+      const scheduleFrom = currentOrder.deliveryTimeFrom || deliveryWindow.from;
+      const scheduleTo = currentOrder.deliveryTimeTo || deliveryWindow.to;
+      const deliveryPriceValue = currentOrder.deliveryPrice || getResolvedDeliveryPriceForArea(currentOrder.selectedAddress?.area || '') || '';
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
-        <div class="modal-content p-8 w-96">
-          <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">تفاصيل الطلب</h2>
-          
-          <div class="mb-4">
-            <label class="block mb-2 font-bold text-gray-700">طريقة الدفع</label>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-              <button onclick="selectPaymentMethod('cash')" id="cashBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition">
-                💵 كاش
-              </button>
-              <button onclick="selectPaymentMethod('online')" id="onlineBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition">
-                💳 أونلاين
-              </button>
-              <button onclick="selectPaymentMethod('knet')" id="knetBtn" class="bg-purple-100 text-purple-800 px-6 py-3 rounded-lg font-bold hover:bg-purple-200 transition">
-                💳 كي-نت
-              </button>
-            </div>
+        <div class="modal-content p-8 w-full max-w-2xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">نوع الطلب</h2>
+
+          <div class="bg-blue-50 p-4 rounded-lg mb-5">
+            <div class="font-bold">${currentOrder.customer.name || ''}</div>
+            <div class="text-gray-600">${currentOrder.customer.phone || ''}</div>
           </div>
           
-          <div class="mb-4">
-            <label class="block mb-2 font-bold text-gray-700">ملاحظات (اختياري)</label>
-            <textarea id="orderNotes" rows="3" placeholder="أي ملاحظات على الطلب..." class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"></textarea>
-          </div>
-          
-          <div class="space-y-4">
-            <button onclick="selectOrderType('delivery')" id="deliveryBtn" disabled class="w-full bg-gray-400 text-white px-6 py-4 rounded-lg font-bold text-xl cursor-not-allowed transition">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button onclick="selectOrderType('delivery')" id="deliveryBtn" class="w-full bg-green-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition">
               🚚 توصيل
             </button>
-            <button onclick="selectOrderType('pickup')" id="pickupBtn" disabled class="w-full bg-gray-400 text-white px-6 py-4 rounded-lg font-bold text-xl cursor-not-allowed transition">
+            <button onclick="selectOrderType('pickup')" id="pickupBtn" class="w-full bg-blue-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 transition">
               🛍️ استلام
             </button>
           </div>
+
+          <div class="mt-4">
+            <div id="deliveryOptionsBox" class="hidden bg-green-50 border border-green-200 rounded-lg p-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <button onclick="selectDeliveryTiming('within2')" id="within2Btn" class="bg-green-600 text-white px-4 py-3 rounded-lg font-bold transition">خلال ساعتين</button>
+                <button onclick="selectDeliveryTiming('specific')" id="specificTimeBtn" class="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition">وقت محدد</button>
+              </div>
+              <div id="deliverySpecificTimeFields" class="hidden grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block mb-1 text-xs font-bold text-gray-600">تاريخ التوصيل</label>
+                  <input type="date" id="deliveryDateInput" value="${scheduleDate}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block mb-1 text-xs font-bold text-gray-600">من</label>
+                  <input type="time" id="deliveryFromInput" value="${scheduleFrom}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block mb-1 text-xs font-bold text-gray-600">إلى</label>
+                  <input type="time" id="deliveryToInput" value="${scheduleTo}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+                </div>
+              </div>
+              <div id="deliveryScheduleText" class="text-xs text-green-800 mt-3 font-semibold"></div>
+              <div class="mt-4">
+                <label class="block mb-2 font-bold text-gray-700">رسوم التوصيل (د.ك)</label>
+                <input type="text" id="deliveryPrice" value="${deliveryPriceValue === '' ? '' : formatNumberWithThreeDecimals(deliveryPriceValue)}" readonly class="w-full p-3 border-2 border-gray-200 rounded-lg bg-gray-100 text-gray-700 cursor-not-allowed">
+                <div class="text-xs text-gray-500 mt-2">يتم تحديد الرسوم تلقائياً من صفحة أسعار التوصيل حسب منطقة العميل.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="pickupBranchBox" class="mt-4 hidden">
+            <label class="block mb-2 font-bold text-gray-700">فرع الاستلام</label>
+            <select id="pickupBranchSelect" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <option value="">اختر فرع الاستلام</option>
+              ${PICKUP_BRANCHES.map(branch => `<option value="${branch}" ${currentOrder.pickupBranch === branch ? 'selected' : ''}>${branch}</option>`).join('')}
+            </select>
+          </div>
+
+          <button onclick="finalizeOrderTypeStep()" class="w-full mt-6 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">التالي</button>
           <button onclick="this.closest('.modal-overlay').remove(); setInvoicePricingBoxVisible(true)" class="w-full mt-4 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
         </div>
       `;
       document.body.appendChild(modal);
+      currentOrder.deliveryTimingType = currentOrder.deliveryTimingType || 'within2';
+      updateDeliveryScheduleText();
+      ['deliveryDateInput', 'deliveryFromInput', 'deliveryToInput'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateDeliveryScheduleText);
+      });
+      if (currentOrder.orderType) selectOrderType(currentOrder.orderType);
+      if (currentOrder.orderType === 'delivery') selectDeliveryTiming(currentOrder.deliveryTimingType || 'within2');
     }
     
 
@@ -1809,8 +2147,7 @@ function showNumericKeypadForInvoice(index, inputField) {
       const cashBtn = document.getElementById('cashBtn');
       const onlineBtn = document.getElementById('onlineBtn');
       const knetBtn = document.getElementById('knetBtn');
-      const deliveryBtn = document.getElementById('deliveryBtn');
-      const pickupBtn = document.getElementById('pickupBtn');
+      const cashPanel = document.getElementById('cashPaymentPanel');
       
       if (cashBtn) cashBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition';
       if (onlineBtn) onlineBtn.className = 'bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition';
@@ -1823,34 +2160,219 @@ function showNumericKeypadForInvoice(index, inputField) {
       } else if (method === 'knet') {
         if (knetBtn) knetBtn.className = 'bg-purple-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition';
       }
-      
-      // تفعيل أزرار نوع الطلب
-      deliveryBtn.disabled = false;
-      deliveryBtn.className = 'w-full bg-green-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition';
-      pickupBtn.disabled = false;
-      pickupBtn.className = 'w-full bg-blue-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 transition';
+
+      if (cashPanel) {
+        const shouldShowCashPanel = method === 'cash' && currentOrder.orderType === 'pickup';
+        cashPanel.classList.toggle('hidden', !shouldShowCashPanel);
+        if (shouldShowCashPanel) updateCashChange();
+      }
     }
 
 
         function selectOrderType(type) {
-      if (!selectedPaymentMethod) {
-        showToast('الرجاء اختيار طريقة الدفع أولاً', true);
+      currentOrder.orderType = type;
+      const deliveryBtn = document.getElementById('deliveryBtn');
+      const pickupBtn = document.getElementById('pickupBtn');
+      const pickupBranchBox = document.getElementById('pickupBranchBox');
+      const deliveryOptionsBox = document.getElementById('deliveryOptionsBox');
+
+      if (deliveryBtn) deliveryBtn.className = type === 'delivery'
+        ? 'w-full bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-xl transition ring-4 ring-green-200'
+        : 'w-full bg-green-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition';
+      if (pickupBtn) pickupBtn.className = type === 'pickup'
+        ? 'w-full bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-xl transition ring-4 ring-blue-200'
+        : 'w-full bg-blue-600 text-white px-6 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 transition';
+
+      if (pickupBranchBox) pickupBranchBox.classList.toggle('hidden', type !== 'pickup');
+      if (deliveryOptionsBox) deliveryOptionsBox.classList.toggle('hidden', type !== 'delivery');
+      if (type === 'delivery') selectDeliveryTiming(currentOrder.deliveryTimingType || 'within2');
+}
+
+    function selectDeliveryTiming(type) {
+      currentOrder.deliveryTimingType = type;
+      if (type === 'within2') {
+        const deliveryWindow = getDefaultDeliveryWindow();
+        const dateInput = document.getElementById('deliveryDateInput');
+        const fromInput = document.getElementById('deliveryFromInput');
+        const toInput = document.getElementById('deliveryToInput');
+        if (dateInput) dateInput.value = deliveryWindow.date;
+        if (fromInput) fromInput.value = deliveryWindow.from;
+        if (toInput) toInput.value = deliveryWindow.to;
+      }
+      const withinBtn = document.getElementById('within2Btn');
+      const specificBtn = document.getElementById('specificTimeBtn');
+      const fields = document.getElementById('deliverySpecificTimeFields');
+      if (withinBtn) withinBtn.className = type === 'within2'
+        ? 'bg-green-600 text-white px-4 py-3 rounded-lg font-bold transition'
+        : 'bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition';
+      if (specificBtn) specificBtn.className = type === 'specific'
+        ? 'bg-green-600 text-white px-4 py-3 rounded-lg font-bold transition'
+        : 'bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition';
+      if (fields) fields.classList.toggle('hidden', type !== 'specific');
+      updateDeliveryScheduleText();
+    }
+
+    function formatDeliveryDateWithDay(dateValue) {
+      if (!dateValue) return '';
+      const date = new Date(`${dateValue}T00:00:00`);
+      const days = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+      return `${days[date.getDay()]} ${date.getDate()} / ${date.getMonth() + 1} / ${date.getFullYear()}م`;
+    }
+
+    function updateDeliveryScheduleText() {
+      const text = document.getElementById('deliveryScheduleText');
+      if (!text) return;
+      const date = document.getElementById('deliveryDateInput')?.value || '';
+      const from = document.getElementById('deliveryFromInput')?.value || '';
+      const to = document.getElementById('deliveryToInput')?.value || '';
+      text.innerHTML = date && from && to
+        ? `التوصيل ${formatDeliveryDateWithDay(date)}<br>بين الساعة ${formatDeliveryDisplayTime(from)} و ${formatDeliveryDisplayTime(to)}`
+        : '';
+    }
+
+    function finalizeOrderTypeStep() {
+      if (!currentOrder.orderType) {
+        showToast('الرجاء اختيار توصيل أو استلام', true);
         return;
       }
-      
-      currentOrder.orderType = type;
+
+      if (currentOrder.orderType === 'delivery') {
+        currentOrder.selectedAddress = currentOrder.selectedAddress
+          ? { area: currentOrder.selectedAddress.area || '', details: currentOrder.selectedAddress.details || '' }
+          : null;
+        const resolvedPrice = getResolvedDeliveryPriceForArea(currentOrder.selectedAddress?.area || '');
+        currentOrder.deliveryPrice = resolvedPrice === '' || isNaN(resolvedPrice)
+          ? (parseFloat(convertToEnglishNumbers(document.getElementById('deliveryPrice')?.value || '0')) || 0)
+          : resolvedPrice;
+        currentOrder.deliveryDate = document.getElementById('deliveryDateInput')?.value || '';
+        currentOrder.deliveryTimeFrom = document.getElementById('deliveryFromInput')?.value || '';
+        currentOrder.deliveryTimeTo = document.getElementById('deliveryToInput')?.value || '';
+        currentOrder.pickupBranch = '';
+      } else {
+        const pickupBranch = (document.getElementById('pickupBranchSelect')?.value || '').trim();
+        if (!pickupBranch) {
+          showToast('اختر فرع الاستلام', true);
+          return;
+        }
+        currentOrder.pickupBranch = pickupBranch;
+        currentOrder.deliveryPrice = 0;
+        currentOrder.selectedAddress = null;
+        currentOrder.deliveryDate = '';
+        currentOrder.deliveryTimeFrom = '';
+        currentOrder.deliveryTimeTo = '';
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      showPaymentSelectionPage();
+    }
+
+    function getInvoicePaymentTotals() {
+      const subtotal = calculateInvoiceItemsTotal();
+      const deliveryFee = currentOrder.orderType === 'delivery' ? (parseFloat(currentOrder.deliveryPrice) || 0) : 0;
+      return {
+        subtotal,
+        deliveryFee,
+        total: subtotal + deliveryFee
+      };
+    }
+
+    function showPaymentSelectionPage() {
+      const totals = getInvoicePaymentTotals();
+      selectedPaymentMethod = currentOrder.paymentMethod || null;
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-2xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">طريقة الدفع</h2>
+
+          <div class="bg-blue-50 rounded-xl p-5 mb-6 text-center">
+            ${totals.deliveryFee > 0 ? `
+              <div class="grid grid-cols-2 gap-3 text-gray-700 font-bold mb-3">
+                <div class="bg-white rounded-lg p-3">
+                  <div class="text-sm text-gray-500 mb-1">قيمة الفاتورة</div>
+                  <div class="text-xl">${totals.subtotal.toFixed(3)} د.ك</div>
+                </div>
+                <div class="bg-white rounded-lg p-3">
+                  <div class="text-sm text-gray-500 mb-1">رسوم التوصيل</div>
+                  <div class="text-xl">${totals.deliveryFee.toFixed(3)} د.ك</div>
+                </div>
+              </div>
+              <div class="text-sm font-bold text-blue-700 mb-1">الإجمالي</div>
+              <div class="text-4xl font-black text-blue-700">${totals.total.toFixed(3)} د.ك</div>
+            ` : `
+              <div class="text-sm font-bold text-blue-700 mb-1">الإجمالي</div>
+              <div class="text-4xl font-black text-blue-700">${totals.total.toFixed(3)} د.ك</div>
+            `}
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <button onclick="selectPaymentMethod('cash')" id="cashBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-green-500 hover:text-white transition">💵 كاش</button>
+            <button onclick="selectPaymentMethod('online')" id="onlineBtn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-blue-500 hover:text-white transition">💳 أونلاين</button>
+            <button onclick="selectPaymentMethod('knet')" id="knetBtn" class="bg-purple-100 text-purple-800 px-6 py-3 rounded-lg font-bold hover:bg-purple-200 transition">💳 كي-نت</button>
+          </div>
+
+          <div id="cashPaymentPanel" class="hidden bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <label class="block mb-2 font-bold text-gray-700">المبلغ المستلم (د.ك)</label>
+            <input type="text" id="cashReceivedInput" value="${currentOrder.cashReceived || ''}" oninput="this.value = convertToEnglishNumbers(this.value); updateCashChange()" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none text-xl font-bold">
+            <div id="cashChangeText" class="mt-3 text-lg font-bold text-green-700"></div>
+          </div>
+
+          <button onclick="finalizePaymentAndPrint()" class="w-full mt-4 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ وطباعة الفاتورة</button>
+          <button onclick="this.closest('.modal-overlay').remove(); showOrderTypeSelection()" class="w-full mt-3 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      if (selectedPaymentMethod) {
+        selectPaymentMethod(selectedPaymentMethod);
+      }
+    }
+
+    function updateCashChange() {
+      const input = document.getElementById('cashReceivedInput');
+      const label = document.getElementById('cashChangeText');
+      if (!input || !label) return;
+
+      const total = getInvoicePaymentTotals().total;
+      const received = parseFloat(convertToEnglishNumbers(input.value || '0')) || 0;
+      const change = received - total;
+      currentOrder.cashReceived = received;
+      currentOrder.cashChange = Math.max(change, 0);
+      label.textContent = change >= 0
+        ? `الباقي: ${change.toFixed(3)} د.ك`
+        : `المتبقي: ${Math.abs(change).toFixed(3)} د.ك`;
+      label.className = `mt-3 text-lg font-bold ${change >= 0 ? 'text-green-700' : 'text-red-600'}`;
+    }
+
+    function finalizePaymentAndPrint() {
+      if (!selectedPaymentMethod) {
+        showToast('الرجاء اختيار طريقة الدفع', true);
+        return;
+      }
+
+      const totals = getInvoicePaymentTotals();
       currentOrder.paymentMethod = selectedPaymentMethod;
-      currentOrder.notes = document.getElementById('orderNotes').value.trim();
-      document.querySelector('.modal-overlay').remove();
-  
-  if (type === 'delivery') {
-    showCustomerSelectionForDelivery();
-  } else {
-    showPickupCustomerInfo();
-  }
-}
+      currentOrder.notes = '';
+
+      if (selectedPaymentMethod === 'cash' && currentOrder.orderType === 'pickup') {
+        const received = parseFloat(convertToEnglishNumbers(document.getElementById('cashReceivedInput')?.value || '0')) || 0;
+        if (received < totals.total) {
+          showToast('المبلغ المستلم أقل من الإجمالي', true);
+          return;
+        }
+        currentOrder.cashReceived = received;
+        currentOrder.cashChange = received - totals.total;
+      } else {
+        currentOrder.cashReceived = 0;
+        currentOrder.cashChange = 0;
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      printAndSaveInvoice();
+    }
     
-    function showCustomerSelectionForDelivery() {
+    function showInvoiceCustomerSelection(allowProductsFirst = false) {
+      document.querySelector('.modal-overlay')?.remove();
+      setInvoicePricingBoxVisible(false);
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
@@ -1861,6 +2383,12 @@ function showNumericKeypadForInvoice(index, inputField) {
               ➕ إضافة عميل
             </button>
           </div>
+
+          ${allowProductsFirst ? `
+            <button onclick="this.closest('.modal-overlay').remove(); showInvoiceProductsPage()" class="w-full mb-4 bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition">
+              اختيار المنتجات أولاً
+            </button>
+          ` : ''}
           
           <input type="text" id="customerSearchDelivery" oninput="filterCustomersDelivery()" placeholder="🔍 بحث عن رقم العميل..." class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
           
@@ -1878,6 +2406,10 @@ function showNumericKeypadForInvoice(index, inputField) {
       `;
       document.body.appendChild(modal);
     }
+
+    function showCustomerSelectionForDelivery() {
+      showInvoiceCustomerSelection(false);
+    }
     
     function filterCustomersDelivery() {
       const searchTerm = document.getElementById('customerSearchDelivery').value.toLowerCase();
@@ -1892,11 +2424,105 @@ function showNumericKeypadForInvoice(index, inputField) {
     function selectCustomerForDelivery(customerId) {
       const customer = allCustomers.find(c => c.id === customerId);
       currentOrder.customer = customer;
-      document.querySelector('.modal-overlay').remove();
-      showDeliveryDetails();
+      showSelectedCustomerAddressPage();
+    }
+
+    function showSelectedCustomerAddressPage() {
+      const customer = currentOrder.customer;
+      if (!customer) return;
+      document.querySelector('.modal-overlay')?.remove();
+      const addresses = Array.isArray(customer.addresses) ? customer.addresses : [];
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-2xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">بيانات العميل والعناوين</h2>
+
+          <div class="bg-blue-50 p-4 rounded-lg mb-6">
+            <div class="text-lg font-bold">${escapeHtml(customer.name || '')}</div>
+            <div class="text-gray-600">${escapeHtml(customer.phone || '')}</div>
+          </div>
+
+          <div class="mb-4">
+            <label class="block mb-2 font-bold text-gray-700">العنوان</label>
+            <select id="customerAddressChoice" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+              <option value="" ${addresses.length ? '' : 'selected'}>بدون عنوان حالياً</option>
+              ${addresses.map((addr, idx) => `
+                <option value="${idx}" ${idx === 0 ? 'selected' : ''}>${escapeHtml(addr.area || '')}${addr.details ? ` - ${escapeHtml(addr.details)}` : ''}</option>
+              `).join('')}
+              <option value="new">➕ إضافة عنوان جديد</option>
+            </select>
+          </div>
+
+          <div id="customerNewAddressFields" class="hidden space-y-4 mb-4">
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">المنطقة</label>
+              <select id="customerNewAddressArea" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <option value="">اختر المنطقة</option>
+                ${areas.map(area => `<option value="${area}">${area}</option>`).join('')}
+                <option value="أخرى">أخرى (كتابة يدوية)</option>
+              </select>
+              <input type="text" id="customerNewAddressAreaManual" placeholder="اكتب المنطقة" class="w-full p-3 border-2 border-gray-300 rounded-lg mt-2 hidden focus:border-blue-600 focus:outline-none">
+            </div>
+
+            <div>
+              <label class="block mb-2 font-bold text-gray-700">تفاصيل العنوان</label>
+              <textarea id="customerNewAddressDetails" rows="3" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"></textarea>
+            </div>
+          </div>
+
+          <div class="flex gap-3 mt-6">
+            <button onclick="confirmSelectedCustomerAddress()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">تأكيد</button>
+            <button onclick="this.closest('.modal-overlay').remove(); showInvoiceCustomerSelection(false)" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">رجوع</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('customerAddressChoice').addEventListener('change', function() {
+        document.getElementById('customerNewAddressFields').classList.toggle('hidden', this.value !== 'new');
+      });
+      document.getElementById('customerNewAddressArea').addEventListener('change', function() {
+        document.getElementById('customerNewAddressAreaManual').classList.toggle('hidden', this.value !== 'أخرى');
+      });
+    }
+
+    async function confirmSelectedCustomerAddress() {
+      const customer = currentOrder.customer;
+      if (!customer) return;
+      const choice = document.getElementById('customerAddressChoice')?.value || '';
+
+      if (choice === 'new') {
+        let area = document.getElementById('customerNewAddressArea')?.value || '';
+        if (area === 'أخرى') {
+          area = document.getElementById('customerNewAddressAreaManual')?.value.trim() || '';
+        }
+        const details = document.getElementById('customerNewAddressDetails')?.value.trim() || '';
+
+        if (area || details) {
+          const nextAddress = { area, details };
+          customer.addresses = Array.isArray(customer.addresses) ? customer.addresses : [];
+          customer.addresses.push(nextAddress);
+          currentOrder.selectedAddress = nextAddress;
+          await saveCustomer(customer);
+        } else {
+          currentOrder.selectedAddress = null;
+        }
+      } else if (choice !== '') {
+        const address = Array.isArray(customer.addresses) ? customer.addresses[parseInt(choice)] : null;
+        currentOrder.selectedAddress = address
+          ? { area: address.area || '', details: address.details || '' }
+          : null;
+      } else {
+        currentOrder.selectedAddress = null;
+      }
+
+      applyDeliveryPriceFromSelectedAddress();
+      continueInvoiceAfterCustomerSelection();
     }
     
     function showAddCustomerForDelivery() {
+      const searchValue = convertToEnglishNumbers(document.getElementById('customerSearchDelivery')?.value || '').replace(/\D/g, '');
       document.querySelector('.modal-overlay').remove();
       
       const modal = document.createElement('div');
@@ -1915,7 +2541,7 @@ function showNumericKeypadForInvoice(index, inputField) {
               <label class="block mb-2 font-bold text-gray-700">رقم الهاتف</label>
               <div class="flex gap-2">
                 <input type="text" id="newCustomerPrefix" value="965" class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
-                <input type="text" id="newCustomerPhoneDelivery" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+                <input type="text" id="newCustomerPhoneDelivery" value="${searchValue}" oninput="this.value = convertToEnglishNumbers(this.value)" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
               </div>
             </div>
             
@@ -1969,23 +2595,20 @@ function showNumericKeypadForInvoice(index, inputField) {
         area = document.getElementById('newCustomerAreaManual').value.trim();
       }
       
-      if (!area) {
-        showToast('الرجاء إدخال المنطقة', true);
-        return;
-      }
-      
       const customer = {
         name,
         phone: prefix + phone,
-        addresses: [{ area, details: address }]
+        addresses: area || address ? [{ area, details: address }] : []
       };
       
       const success = await saveCustomer(customer);
       if (success) {
         showToast('تم إضافة العميل بنجاح');
-        currentOrder.customer = allCustomers[allCustomers.length - 1];
+        currentOrder.customer = customer;
+        currentOrder.selectedAddress = customer.addresses[0] || null;
+        applyDeliveryPriceFromSelectedAddress();
         document.querySelector('.modal-overlay').remove();
-        showDeliveryDetails();
+        continueInvoiceAfterCustomerSelection();
       }
     }
     
@@ -2301,14 +2924,22 @@ function showNumericKeypadForInvoice(index, inputField) {
         cashier: currentCashier.name || '',
         cashierCode: currentCashier.code || '',
         branch: currentBranch || '',
+        dailySessionId: currentBranch === 'اليرموك' && currentDailySession ? currentDailySession.id : '',
         customerName: currentOrder.customer.name || '',
         phoneNumber: currentOrder.customer.phone || '',
         orderType: currentOrder.orderType || '',
         paymentMethod: currentOrder.paymentMethod || '',
         pickupBranch: currentOrder.pickupBranch || '',
-        address: currentOrder.selectedAddress ? `${currentOrder.selectedAddress.area} - ${currentOrder.selectedAddress.details}` : (currentOrder.pickupBranch ? `استلام من فرع ${currentOrder.pickupBranch}` : ''),
+        address: currentOrder.orderType === 'delivery' && currentOrder.selectedAddress
+          ? `${currentOrder.selectedAddress.area || ''}${currentOrder.selectedAddress.details ? ` - ${currentOrder.selectedAddress.details}` : ''}`.trim()
+          : '',
+        deliveryDate: currentOrder.deliveryDate || '',
+        deliveryTimeFrom: currentOrder.deliveryTimeFrom || '',
+        deliveryTimeTo: currentOrder.deliveryTimeTo || '',
         items: cleanedItems,
         deliveryPrice: currentOrder.deliveryPrice || 0,
+        cashReceived: currentOrder.cashReceived || 0,
+        cashChange: currentOrder.cashChange || 0,
         notes: currentOrder.notes || '',
         total: currentOrder.items.reduce((sum, item) => sum + item.total, 0) + (currentOrder.deliveryPrice || 0)
       };
@@ -2336,8 +2967,9 @@ function showNumericKeypadForInvoice(index, inputField) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.innerHTML = `
-    <div class="modal-content p-4" style="background: #f3f4f6;">
-      <div class="thermal-invoice" style="width: 72mm; margin: 0 auto; padding: 10px; background: white; border-radius: 8px;">
+    <div class="modal-content p-0" style="background: #f3f4f6; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;">
+      <div style="overflow-y: auto; padding: 16px 16px 8px; min-height: 0;">
+        <div class="thermal-invoice" style="width: 72mm; margin: 0 auto; padding: 10px; background: white; border-radius: 8px;">
         <div style="text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px;">
           <img src="logo.png" alt="الشعار" style="width: 100px; height: 100px; margin: 0 auto 10px auto; display: block; object-fit: contain;" onerror="this.style.display='none';">
           <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">مخبز التين والزيتون</div>
@@ -2378,6 +3010,17 @@ function showNumericKeypadForInvoice(index, inputField) {
             <span>${order.address ? `📍 ${order.address}` : ''}</span>
             <span style="background: #000; color: #fff; padding: 0 5px; border-radius: 2px;">${getPaymentMethodLabel(order.paymentMethod, false)}</span>
           </div>
+          ${order.orderType === 'delivery' && order.deliveryDate ? `
+            <div style="font-size: 10px; color: #166534; margin-top: 4px;">
+              ⏱️ التوصيل: ${formatDeliveryDateWithDay(order.deliveryDate)}<br>
+              <span style="display: inline-block; margin-top: 2px;">بين الساعة ${formatDeliveryDisplayTime(order.deliveryTimeFrom)} و ${formatDeliveryDisplayTime(order.deliveryTimeTo)}</span>
+            </div>
+          ` : ''}
+          ${order.orderType === 'pickup' && order.pickupBranch ? `
+            <div style="font-size: 10px; color: #1d4ed8; margin-top: 4px;">
+              🛍️ فرع الاستلام: ${order.pickupBranch}
+            </div>
+          ` : ''}
         </div>
 
         <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
@@ -2425,6 +3068,16 @@ function showNumericKeypadForInvoice(index, inputField) {
             <span>الإجمالي:</span>
             <span>${invoiceGrandTotal.toFixed(3)} د.ك</span>
           </div>
+          ${order.paymentMethod === 'cash' && (parseFloat(order.cashReceived) || 0) > 0 ? `
+            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 5px;">
+              <span>المستلم:</span>
+              <span>${(parseFloat(order.cashReceived) || 0).toFixed(3)} د.ك</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+              <span>الباقي:</span>
+              <span>${(parseFloat(order.cashChange) || 0).toFixed(3)} د.ك</span>
+            </div>
+          ` : ''}
         </div>
 
         ${order.notes ? `
@@ -2438,9 +3091,10 @@ function showNumericKeypadForInvoice(index, inputField) {
           <div style="font-size: 11px; font-weight: bold;">شكراً لزيارتكم!</div>
           <div style="font-size: 9px; color: #666; margin-top: 3px;">صحتك أغلى ما تملك،، فتناول شيئاً صحياً.</div>
         </div>
+        </div>
       </div>
       
-      <div class="mt-4 flex gap-2">
+      <div class="flex gap-2" style="padding: 12px 16px 16px; background: #f3f4f6; border-top: 1px solid #e5e7eb; flex-shrink: 0;">
         <button onclick="printThermalInvoice(this)" style="flex: 2; background: #2563eb; color: white; padding: 12px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer;">
           🖨️ طباعة الفاتورة
         </button>
@@ -2454,7 +3108,7 @@ function showNumericKeypadForInvoice(index, inputField) {
 }
 
 
-function printThermalInvoice(button) {
+    function printThermalInvoice(button) {
   const invoiceContent = button.closest('.modal-content').querySelector('.thermal-invoice').innerHTML;
   
   const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -2553,6 +3207,348 @@ function printThermalInvoice(button) {
   printWindow.document.close();
 }
 
+    async function updateOrderCourierName(orderId, courierName) {
+      try {
+        await db.ref(`orders/${orderId}`).update({
+          courierName: (courierName || '').trim(),
+          courierHandoverStarted: true,
+          courierHandoverAt: Date.now()
+        });
+        const order = allOrders.find(item => item.id === orderId);
+        if (order) {
+          order.courierName = (courierName || '').trim();
+          order.courierHandoverStarted = true;
+          order.courierHandoverAt = Date.now();
+        }
+        showToast('تم حفظ اسم المندوب');
+      } catch (error) {
+        console.error('Error saving courier name:', error);
+        showToast('تعذر حفظ اسم المندوب', true);
+      }
+    }
+
+    async function markOrderHandedToCourier(orderId) {
+      try {
+        await db.ref(`orders/${orderId}`).update({
+          courierHandoverStarted: true,
+          courierHandoverAt: Date.now()
+        });
+        const order = allOrders.find(item => item.id === orderId);
+        if (order) {
+          order.courierHandoverStarted = true;
+          order.courierHandoverAt = Date.now();
+        }
+        renderCashier();
+        showToast('اكتب اسم المندوب');
+      } catch (error) {
+        console.error('Error marking courier handover:', error);
+        showToast('تعذر تحديث حالة التسليم للمندوب', true);
+      }
+    }
+
+    function getCurrentDailySessionOrders() {
+      if (!currentDailySession) return [];
+      return allOrders
+        .filter(order => {
+          const belongsById = order.dailySessionId && order.dailySessionId === currentDailySession.id;
+          const belongsByTime = !order.dailySessionId &&
+            order.branch === currentDailySession.branch &&
+            order.cashierCode === currentDailySession.cashierCode &&
+            (order.timestamp || 0) >= (currentDailySession.openedAt || 0);
+          return belongsById || belongsByTime;
+        })
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    }
+
+    function getLocalDateValueFromTimestamp(timestamp) {
+      const date = new Date(timestamp || Date.now());
+      const pad = (value) => String(value).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    function getDeliveryTimeRangeText(order) {
+      const from = formatDeliveryDisplayTime(order.deliveryTimeFrom);
+      const to = formatDeliveryDisplayTime(order.deliveryTimeTo);
+      return `بين الساعة ${from} و ${to}`;
+    }
+
+    function getDeliveryDateAndTimeText(order) {
+      const dateText = order.deliveryDate ? formatDeliveryDateWithDay(order.deliveryDate) : '-';
+      return `${dateText} - ${getDeliveryTimeRangeText(order)}`;
+    }
+
+    function showDailyBalanceStart() {
+      if (!currentDailySession) {
+        showToast('لا توجد يومية مفتوحة', true);
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-md text-center">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6">موازنة اليومية</h2>
+          <p class="text-gray-700 mb-6 text-lg font-bold">هل يوجد لديك مدفوعات؟</p>
+          <div class="flex gap-3">
+            <button onclick="this.closest('.modal-overlay').remove(); showDailyPaymentsModal()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">نعم</button>
+            <button onclick="this.closest('.modal-overlay').remove(); finalizeDailyBalance([])" class="flex-1 bg-gray-800 text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-900 transition">لا</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function showDailyPaymentsModal() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-content p-8 w-full max-w-2xl">
+          <h2 class="text-2xl font-bold text-blue-600 mb-6 text-center">مدفوعات اليومية</h2>
+          <div id="dailyPaymentsRows" class="space-y-3"></div>
+          <button onclick="addDailyPaymentRow()" class="w-full mt-4 bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition">+ إضافة دفعة</button>
+          <div class="flex gap-3 mt-6">
+            <button onclick="finalizeDailyBalanceFromModal()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">طباعة الموازنة</button>
+            <button onclick="this.closest('.modal-overlay').remove()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      addDailyPaymentRow();
+    }
+
+    function addDailyPaymentRow() {
+      const container = document.getElementById('dailyPaymentsRows');
+      if (!container) return;
+      const row = document.createElement('div');
+      row.className = 'grid grid-cols-1 md:grid-cols-12 gap-3 items-center';
+      row.innerHTML = `
+        <input type="text" placeholder="اسم الدفعة" class="daily-payment-name md:col-span-6 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+        <input type="text" placeholder="المبلغ" oninput="this.value = convertToEnglishNumbers(this.value)" class="daily-payment-amount md:col-span-5 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+        <button onclick="this.closest('.grid').remove()" class="md:col-span-1 bg-red-100 text-red-700 p-3 rounded-lg font-bold hover:bg-red-200 transition">×</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function finalizeDailyBalanceFromModal() {
+      const rows = Array.from(document.querySelectorAll('#dailyPaymentsRows .grid'));
+      const payments = [];
+
+      for (const row of rows) {
+        const name = row.querySelector('.daily-payment-name')?.value.trim() || '';
+        const amountValue = convertToEnglishNumbers(row.querySelector('.daily-payment-amount')?.value || '').trim();
+        const amount = parseFloat(amountValue);
+        if (!name && !amountValue) continue;
+        if (!name || isNaN(amount)) {
+          showToast('أكمل اسم الدفعة والمبلغ لكل المدفوعات', true);
+          return;
+        }
+        payments.push({ name, amount: parseFloat(amount.toFixed(3)) });
+      }
+
+      document.querySelector('.modal-overlay')?.remove();
+      finalizeDailyBalance(payments);
+    }
+
+    function getDailyBalanceSummary(payments) {
+      const orders = getCurrentDailySessionOrders();
+      const totals = { cash: 0, online: 0, knet: 0 };
+      orders.forEach(order => {
+        const total = parseFloat(order.total) || 0;
+        if (order.paymentMethod === 'cash') totals.cash += total;
+        if (order.paymentMethod === 'online') totals.online += total;
+        if (order.paymentMethod === 'knet') totals.knet += total;
+      });
+      const deliveryOrders = orders.filter(order => order.orderType === 'delivery');
+      const deliveredDeliveryOrders = deliveryOrders.filter(order => (order.courierName || '').trim());
+      const pendingDeliveryOrders = deliveryOrders.filter(order => !(order.courierName || '').trim());
+      const sessionDate = getLocalDateValueFromTimestamp(currentDailySession?.openedAt || Date.now());
+      const sameDayPendingDeliveryOrders = pendingDeliveryOrders.filter(order => !order.deliveryDate || order.deliveryDate === sessionDate);
+      const futurePendingDeliveryOrders = pendingDeliveryOrders.filter(order => order.deliveryDate && order.deliveryDate !== sessionDate);
+      return {
+        orders,
+        deliveryOrders,
+        deliveredDeliveryOrders,
+        sameDayPendingDeliveryOrders,
+        futurePendingDeliveryOrders,
+        totals,
+        payments,
+        firstInvoice: orders[0]?.invoiceNumber || '-',
+        lastInvoice: orders[orders.length - 1]?.invoiceNumber || '-'
+      };
+    }
+
+    async function finalizeDailyBalance(payments) {
+      if (!currentDailySession) {
+        showToast('لا توجد يومية مفتوحة', true);
+        return;
+      }
+
+      const summary = getDailyBalanceSummary(payments);
+
+      const closedAt = Date.now();
+      const balanceData = {
+        status: 'closed',
+        closedAt,
+        payments,
+        totals: summary.totals,
+        firstInvoice: summary.firstInvoice,
+        lastInvoice: summary.lastInvoice,
+        ordersCount: summary.orders.length,
+        deliveryOrdersCount: summary.deliveryOrders.length,
+        pendingSameDayDeliveryOrdersCount: summary.sameDayPendingDeliveryOrders.length,
+        pendingFutureDeliveryOrdersCount: summary.futurePendingDeliveryOrders.length
+      };
+
+      try {
+        await db.ref(`dailySessions/${currentDailySession.id}`).update(balanceData);
+        const reportSession = { ...currentDailySession, ...balanceData };
+        printDailyBalanceReport(reportSession, summary);
+        currentDailySession = null;
+        showToast('تمت موازنة اليومية');
+        renderCashier();
+      } catch (error) {
+        console.error('Error closing daily balance:', error);
+        showToast('تعذر حفظ الموازنة', true);
+      }
+    }
+
+    function printDailyBalanceReport(session, summary) {
+      const paymentsTotal = summary.payments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
+      const deliveryRows = summary.deliveredDeliveryOrders.map(order => `
+        <tr>
+          <td>${order.invoiceNumber || '-'}</td>
+          <td>${getPaymentMethodLabel(order.paymentMethod, false)}</td>
+          <td>${formatNumberWithThreeDecimals(order.total)}</td>
+          <td>${formatNumberWithThreeDecimals(order.deliveryPrice || order.deliveryFee || 0)}</td>
+          <td>${escapeHtml(order.courierName || '-')}</td>
+        </tr>
+      `).join('');
+      const sameDayPendingRows = summary.sameDayPendingDeliveryOrders.map(order => `
+        <tr>
+          <td>${order.invoiceNumber || '-'}</td>
+          <td>${getPaymentMethodLabel(order.paymentMethod, false)}</td>
+          <td>${formatNumberWithThreeDecimals(order.total)}</td>
+          <td>${formatNumberWithThreeDecimals(order.deliveryPrice || order.deliveryFee || 0)}</td>
+          <td>${getDeliveryTimeRangeText(order)}</td>
+        </tr>
+      `).join('');
+      const futurePendingRows = summary.futurePendingDeliveryOrders.map(order => `
+        <tr>
+          <td>${order.invoiceNumber || '-'}</td>
+          <td>${getPaymentMethodLabel(order.paymentMethod, false)}</td>
+          <td>${formatNumberWithThreeDecimals(order.total)}</td>
+          <td>${getDeliveryDateAndTimeText(order)}</td>
+        </tr>
+      `).join('');
+
+      const printWindow = window.open('', '_blank', 'width=800,height=600');
+      if (!printWindow) {
+        showToast('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', true);
+        return;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <title>يومية الموظف</title>
+          <style>
+            @page { size: 80mm auto; margin: 0; }
+            * { box-sizing: border-box; }
+            body { width: 80mm; margin: 0; padding: 4mm 3mm; font-family: Arial, sans-serif; color: #111; }
+            .center { text-align: center; }
+            .logo { width: 26mm; height: 26mm; object-fit: contain; margin: 0 auto 2mm; display: block; }
+            h1 { font-size: 18px; margin: 2mm 0; }
+            h2 { font-size: 14px; margin: 4mm 0 2mm; border-top: 1px dashed #000; padding-top: 2mm; }
+            .row { display: flex; justify-content: space-between; gap: 4mm; font-size: 12px; margin: 1.5mm 0; }
+            .bold { font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 2mm; }
+            th { background: #e5e7eb; border-bottom: 1px solid #000; padding: 1.5mm 1mm; }
+            td { border-bottom: 1px dotted #bbb; padding: 1.5mm 1mm; text-align: center; }
+            .thanks { text-align: center; font-weight: 900; font-size: 15px; margin-top: 5mm; border-top: 1px dashed #000; padding-top: 3mm; }
+          </style>
+        </head>
+        <body>
+          <img src="logo.png" class="logo" onerror="this.style.display='none'">
+          <h1 class="center">يومية الموظف ${escapeHtml(session.cashierName || '')}</h1>
+          <div class="row"><span>فتح اليومية:</span><span class="bold">${formatDate(session.openedAt)} ${formatTime(session.openedAt)}</span></div>
+          <div class="row"><span>مبلغ البداية:</span><span class="bold">${formatNumberWithThreeDecimals(session.openingAmount)} د.ك</span></div>
+          <div class="row"><span>إغلاق اليومية:</span><span class="bold">${formatDate(session.closedAt)} ${formatTime(session.closedAt)}</span></div>
+
+          <h2>الإيرادات</h2>
+          <div class="row"><span>كاش</span><span class="bold">${formatNumberWithThreeDecimals(summary.totals.cash)} د.ك</span></div>
+          <div class="row"><span>أونلاين</span><span class="bold">${formatNumberWithThreeDecimals(summary.totals.online)} د.ك</span></div>
+          <div class="row"><span>كي نت</span><span class="bold">${formatNumberWithThreeDecimals(summary.totals.knet)} د.ك</span></div>
+
+          <h2>مدفوعات</h2>
+          ${summary.payments.length > 0 ? summary.payments.map(payment => `
+            <div class="row"><span>${escapeHtml(payment.name)}</span><span class="bold">${formatNumberWithThreeDecimals(payment.amount)} د.ك</span></div>
+          `).join('') : '<div class="row"><span>لا توجد مدفوعات</span><span class="bold">0.000 د.ك</span></div>'}
+          <div class="row"><span>إجمالي المدفوعات</span><span class="bold">${formatNumberWithThreeDecimals(paymentsTotal)} د.ك</span></div>
+
+          <h2>الفواتير</h2>
+          <div class="row"><span>رقم أول فاتورة:</span><span class="bold">${summary.firstInvoice}</span></div>
+          <div class="row"><span>رقم آخر فاتورة:</span><span class="bold">${summary.lastInvoice}</span></div>
+
+          <h2>فواتير التوصيل المسلمة للمندوب</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>الفاتورة</th>
+                <th>الدفع</th>
+                <th>القيمة</th>
+                <th>التوصيل</th>
+                <th>المندوب</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${deliveryRows || '<tr><td colspan="5">لا توجد فواتير توصيل مسلمة</td></tr>'}
+            </tbody>
+          </table>
+
+          ${sameDayPendingRows ? `
+            <h2>فواتير توصيل سيتابعها الكاشير التالي</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>الفاتورة</th>
+                  <th>الدفع</th>
+                  <th>القيمة</th>
+                  <th>التوصيل</th>
+                  <th>موعد التوصيل</th>
+                </tr>
+              </thead>
+              <tbody>${sameDayPendingRows}</tbody>
+            </table>
+          ` : ''}
+
+          ${futurePendingRows ? `
+            <h2>فواتير توصيل مؤجلة ليوم آخر</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>الفاتورة</th>
+                  <th>الدفع</th>
+                  <th>القيمة</th>
+                  <th>موعد توصيلها</th>
+                </tr>
+              </thead>
+              <tbody>${futurePendingRows}</tbody>
+            </table>
+          ` : ''}
+
+          <div class="thanks">***شكراً***</div>
+          <script>
+            window.print();
+            window.onafterprint = function() { window.close(); };
+          <\/script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+
     
     async function reprintInvoice(orderId) {
       try {
@@ -2578,6 +3574,11 @@ function printThermalInvoice(button) {
     }
 
     function logoutCashier() {
+      if (currentBranch === 'اليرموك' && currentDailySession && currentDailySession.status === 'open') {
+        showToast('يجب عمل موازنة قبل تسجيل الخروج', true);
+        showDailyBalanceStart();
+        return;
+      }
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
@@ -2596,12 +3597,21 @@ function printThermalInvoice(button) {
     function confirmLogoutCashier() {
       currentCashier = null;
       currentBranch = null;
+      currentDailySession = null;
       currentOrder = {
         items: [],
         customer: null,
         deliveryPrice: 0,
         orderType: null,
-        pickupBranch: ''
+        paymentMethod: '',
+        selectedAddress: null,
+        deliveryTimingType: 'within2',
+        deliveryDate: '',
+        deliveryTimeFrom: '',
+        deliveryTimeTo: '',
+        pickupBranch: '',
+        cashReceived: 0,
+        cashChange: 0
       };
       document.querySelector('.modal-overlay').remove();
       currentScreen = 'home';
@@ -2705,6 +3715,9 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'categories' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('categories')">
             📁 الأقسام
           </div>
+          <div class="sidebar-item ${section === 'deliveryPrices' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('deliveryPrices')">
+            🚚 أسعار التوصيل
+          </div>
           <div class="sidebar-item ${['inventory', 'inventoryProducts', 'inventoryCategories', 'inventoryCategoryDetails'].includes(section) ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('inventory')">
             📦 متابعة المخزون
           </div>
@@ -2755,6 +3768,8 @@ function renderAccountingContent(section) {
       return renderPriceChangeReportSection();
     case 'categories': 
       return renderCategoriesSection();
+    case 'deliveryPrices':
+      return renderDeliveryPricesSection();
     case 'inventory':
       return renderInventorySection();
     case 'inventoryProducts':
@@ -3088,6 +4103,117 @@ function renderAccountingContent(section) {
       `;
 
       openA4PrintWindow('تقرير الزيادة والتخفيض', contentHtml);
+    }
+
+    function getDeliveryPriceAreas() {
+      return areas.slice();
+    }
+
+    function renderDeliveryPricesSection() {
+      const inferredPrices = getInferredDeliveryPrices();
+      const deliveryAreas = getDeliveryPriceAreas();
+      const filledCount = deliveryAreas.filter(area => getResolvedDeliveryPriceForArea(area) !== '').length;
+
+      return `
+        <div>
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h2 class="text-3xl font-bold text-blue-600">أسعار التوصيل</h2>
+              <p class="text-gray-600 mt-1">يتم استخدام هذه الأسعار تلقائياً في فواتير التوصيل حسب منطقة العميل.</p>
+            </div>
+            <button onclick="saveDeliveryPrices()" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ الأسعار</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white border border-blue-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">عدد المناطق</div>
+              <div class="text-2xl font-bold text-blue-700">${deliveryAreas.length}</div>
+            </div>
+            <div class="bg-white border border-green-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">أسعار معروفة</div>
+              <div class="text-2xl font-bold text-green-700">${filledCount}</div>
+            </div>
+            <div class="bg-white border border-amber-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">بدون سعر</div>
+              <div class="text-2xl font-bold text-amber-700">${deliveryAreas.length - filledCount}</div>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>المنطقة</th>
+                    <th>سعر التوصيل (د.ك)</th>
+                    <th>المصدر</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${deliveryAreas.map((area, index) => {
+                    const saved = getSavedDeliveryPriceForArea(area);
+                    const inferred = inferredPrices[area];
+                    const value = saved !== '' && !isNaN(saved) ? saved : (inferred ?? '');
+                    const source = saved !== '' && !isNaN(saved)
+                      ? 'محفوظ'
+                      : (inferred !== undefined ? 'من الفواتير السابقة' : 'غير معروف');
+                    const sourceClass = source === 'محفوظ'
+                      ? 'text-green-700'
+                      : (source === 'من الفواتير السابقة' ? 'text-blue-700' : 'text-amber-700');
+                    return `
+                      <tr>
+                        <td class="font-bold">${escapeHtml(area)}</td>
+                        <td>
+                          <input
+                            type="text"
+                            id="deliveryPriceArea_${index}"
+                            data-area="${escapeHtml(area)}"
+                            value="${value === '' ? '' : formatNumberWithThreeDecimals(value)}"
+                            oninput="this.value = convertToEnglishNumbers(this.value)"
+                            class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
+                            placeholder="اكتب السعر"
+                          >
+                        </td>
+                        <td class="${sourceClass} font-bold">${source}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+            <button onclick="saveDeliveryPrices()" class="w-full mt-6 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ الأسعار</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveDeliveryPrices() {
+      const inputs = document.querySelectorAll('[id^="deliveryPriceArea_"]');
+      const nextPrices = {};
+
+      inputs.forEach(input => {
+        const area = input.getAttribute('data-area') || '';
+        const rawValue = convertToEnglishNumbers(input.value || '').trim();
+        if (!area || rawValue === '') return;
+        const price = parseFloat(rawValue);
+        if (!isNaN(price) && price >= 0) {
+          nextPrices[area] = {
+            area,
+            price: parseFloat(price.toFixed(3)),
+            updatedAt: Date.now()
+          };
+        }
+      });
+
+      try {
+        await db.ref('deliveryPrices').set(nextPrices);
+        allDeliveryPrices = nextPrices;
+        showToast('تم حفظ أسعار التوصيل');
+        renderAccounting('deliveryPrices');
+      } catch (error) {
+        console.error('Error saving delivery prices:', error);
+        showToast('تعذر حفظ أسعار التوصيل', true);
+      }
     }
 
     // Orders Section
