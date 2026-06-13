@@ -3289,9 +3289,12 @@ function showNumericKeypadForInvoice(index, inputField) {
         <div class="modal-content p-8 w-full max-w-md text-center">
           <h2 class="text-2xl font-bold text-blue-600 mb-6">موازنة اليومية</h2>
           <p class="text-gray-700 mb-6 text-lg font-bold">هل يوجد لديك مدفوعات؟</p>
-          <div class="flex gap-3">
-            <button onclick="this.closest('.modal-overlay').remove(); showDailyPaymentsModal()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">نعم</button>
-            <button onclick="this.closest('.modal-overlay').remove(); finalizeDailyBalance([])" class="flex-1 bg-gray-800 text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-900 transition">لا</button>
+          <div class="grid grid-cols-1 gap-3">
+            <div class="flex gap-3">
+              <button onclick="this.closest('.modal-overlay').remove(); showDailyPaymentsModal()" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">نعم</button>
+              <button onclick="this.closest('.modal-overlay').remove(); finalizeDailyBalance([])" class="flex-1 bg-gray-800 text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-900 transition">لا</button>
+            </div>
+            <button onclick="this.closest('.modal-overlay').remove()" class="w-full bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
           </div>
         </div>
       `;
@@ -3456,20 +3459,22 @@ function showNumericKeypadForInvoice(index, inputField) {
           <style>
             @page { size: 80mm auto; margin: 0; }
             * { box-sizing: border-box; }
-            body { width: 80mm; margin: 0; padding: 4mm 3mm; font-family: Arial, sans-serif; color: #111; }
+            body { width: 80mm; margin: 0; padding: 4mm 7mm; font-family: Arial, sans-serif; color: #111; }
+            .receipt { width: 64mm; margin: 0 auto; }
             .center { text-align: center; }
             .logo { width: 26mm; height: 26mm; object-fit: contain; margin: 0 auto 2mm; display: block; }
             h1 { font-size: 18px; margin: 2mm 0; }
             h2 { font-size: 14px; margin: 4mm 0 2mm; border-top: 1px dashed #000; padding-top: 2mm; }
-            .row { display: flex; justify-content: space-between; gap: 4mm; font-size: 12px; margin: 1.5mm 0; }
+            .row { display: flex; justify-content: space-between; gap: 3mm; font-size: 12px; margin: 1.5mm 0; }
             .bold { font-weight: 700; }
-            table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 2mm; }
-            th { background: #e5e7eb; border-bottom: 1px solid #000; padding: 1.5mm 1mm; }
-            td { border-bottom: 1px dotted #bbb; padding: 1.5mm 1mm; text-align: center; }
+            table { width: 100%; border-collapse: collapse; font-size: 8px; margin-top: 2mm; table-layout: fixed; }
+            th { background: #e5e7eb; border-bottom: 1px solid #000; padding: 1mm 0.5mm; }
+            td { border-bottom: 1px dotted #bbb; padding: 1mm 0.5mm; text-align: center; overflow-wrap: anywhere; }
             .thanks { text-align: center; font-weight: 900; font-size: 15px; margin-top: 5mm; border-top: 1px dashed #000; padding-top: 3mm; }
           </style>
         </head>
         <body>
+        <div class="receipt">
           <img src="logo.png" class="logo" onerror="this.style.display='none'">
           <h1 class="center">يومية الموظف ${escapeHtml(session.cashierName || '')}</h1>
           <div class="row"><span>فتح اليومية:</span><span class="bold">${formatDate(session.openedAt)} ${formatTime(session.openedAt)}</span></div>
@@ -3539,6 +3544,7 @@ function showNumericKeypadForInvoice(index, inputField) {
           ` : ''}
 
           <div class="thanks">***شكراً***</div>
+        </div>
           <script>
             window.print();
             window.onafterprint = function() { window.close(); };
