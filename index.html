@@ -3248,13 +3248,19 @@ function showNumericKeypadForInvoice(index, inputField) {
 
     function getCurrentDailySessionOrders() {
       if (!currentDailySession) return [];
+      return getDailySessionOrders(currentDailySession);
+    }
+
+    function getDailySessionOrders(session) {
+      if (!session) return [];
       return allOrders
         .filter(order => {
-          const belongsById = order.dailySessionId && order.dailySessionId === currentDailySession.id;
+          const belongsById = order.dailySessionId && order.dailySessionId === session.id;
           const belongsByTime = !order.dailySessionId &&
-            order.branch === currentDailySession.branch &&
-            order.cashierCode === currentDailySession.cashierCode &&
-            (order.timestamp || 0) >= (currentDailySession.openedAt || 0);
+            order.branch === session.branch &&
+            order.cashierCode === session.cashierCode &&
+            (order.timestamp || 0) >= (session.openedAt || 0) &&
+            (!session.closedAt || (order.timestamp || 0) <= session.closedAt);
           return belongsById || belongsByTime;
         })
         .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
@@ -3354,6 +3360,10 @@ function showNumericKeypadForInvoice(index, inputField) {
 
     function getDailyBalanceSummary(payments) {
       const orders = getCurrentDailySessionOrders();
+      return buildDailyBalanceSummary(currentDailySession, orders, payments);
+    }
+
+    function buildDailyBalanceSummary(session, orders, payments) {
       const totals = { cash: 0, online: 0, knet: 0 };
       orders.forEach(order => {
         const total = parseFloat(order.total) || 0;
@@ -3364,7 +3374,7 @@ function showNumericKeypadForInvoice(index, inputField) {
       const deliveryOrders = orders.filter(order => order.orderType === 'delivery');
       const deliveredDeliveryOrders = deliveryOrders.filter(order => (order.courierName || '').trim());
       const pendingDeliveryOrders = deliveryOrders.filter(order => !(order.courierName || '').trim());
-      const sessionDate = getLocalDateValueFromTimestamp(currentDailySession?.openedAt || Date.now());
+      const sessionDate = getLocalDateValueFromTimestamp(session?.openedAt || Date.now());
       const sameDayPendingDeliveryOrders = pendingDeliveryOrders.filter(order => !order.deliveryDate || order.deliveryDate === sessionDate);
       const futurePendingDeliveryOrders = pendingDeliveryOrders.filter(order => order.deliveryDate && order.deliveryDate !== sessionDate);
       return {
@@ -3378,6 +3388,66 @@ function showNumericKeypadForInvoice(index, inputField) {
         firstInvoice: orders[0]?.invoiceNumber || '-',
         lastInvoice: orders[orders.length - 1]?.invoiceNumber || '-'
       };
+    }
+
+    function renderDailySessionsSection() {
+      const sessions = allDailySessions.slice().sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
+      return `
+        <div>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold text-blue-600">يوميات الموظفين</h2>
+            <div class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold">عدد اليوميات: ${sessions.length}</div>
+          </div>
+
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <div class="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>الموظف</th>
+                    <th>الفرع</th>
+                    <th>فتح اليومية</th>
+                    <th>إغلاق اليومية</th>
+                    <th>مبلغ البداية</th>
+                    <th>الحالة</th>
+                    <th>الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sessions.length > 0 ? sessions.map(session => `
+                    <tr>
+                      <td>${escapeHtml(session.cashierName || '-')}</td>
+                      <td>${escapeHtml(session.branch || '-')}</td>
+                      <td>${session.openedAt ? `${formatDate(session.openedAt)} ${formatTime(session.openedAt)}` : '-'}</td>
+                      <td>${session.closedAt ? `${formatDate(session.closedAt)} ${formatTime(session.closedAt)}` : '-'}</td>
+                      <td>${formatNumberWithThreeDecimals(session.openingAmount)} د.ك</td>
+                      <td>${session.status === 'closed' ? 'مغلقة' : 'مفتوحة'}</td>
+                      <td>
+                        <button onclick="reprintDailySession('${session.id}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition">طباعة</button>
+                      </td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td colspan="7" class="text-center text-gray-500 py-8">لا توجد يوميات محفوظة</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function reprintDailySession(sessionId) {
+      const session = allDailySessions.find(item => item.id === sessionId);
+      if (!session) {
+        showToast('اليومية غير موجودة', true);
+        return;
+      }
+      const orders = getDailySessionOrders(session);
+      const summary = buildDailyBalanceSummary(session, orders, Array.isArray(session.payments) ? session.payments : []);
+      printDailyBalanceReport(session, summary);
     }
 
     async function finalizeDailyBalance(payments) {
@@ -3724,6 +3794,9 @@ function renderAccounting(section) {
           <div class="sidebar-item ${section === 'deliveryPrices' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('deliveryPrices')">
             🚚 أسعار التوصيل
           </div>
+          <div class="sidebar-item ${section === 'dailySessions' ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('dailySessions')">
+            🧾 يوميات الموظفين
+          </div>
           <div class="sidebar-item ${['inventory', 'inventoryProducts', 'inventoryCategories', 'inventoryCategoryDetails'].includes(section) ? 'active' : ''} p-3 rounded-lg" onclick="renderAccounting('inventory')">
             📦 متابعة المخزون
           </div>
@@ -3776,6 +3849,8 @@ function renderAccountingContent(section) {
       return renderCategoriesSection();
     case 'deliveryPrices':
       return renderDeliveryPricesSection();
+    case 'dailySessions':
+      return renderDailySessionsSection();
     case 'inventory':
       return renderInventorySection();
     case 'inventoryProducts':
@@ -10779,9 +10854,52 @@ async function editOrder(orderId) {
   document.getElementById('editPhoneNumber').value = order.phoneNumber || '';
   document.getElementById('editAddress').value = order.address || '';
   document.getElementById('editDeliveryFee').value = parseFloat(order.deliveryFee || order.deliveryPrice || 0).toFixed(3);
+  document.getElementById('editDiscountType').value = order.discountType || 'none';
+  document.getElementById('editDiscountValue').value = parseFloat(order.discountValue || 0) || '';
   
   // عرض المنتجات
   renderEditProducts();
+}
+
+function getEditItemsGrossTotal() {
+  return currentEditingOrder.items.reduce((sum, item) => {
+    const quantity = parseFloat(item.quantity) || 0;
+    const price = parseFloat(item.price) || 0;
+    return sum + (quantity * price);
+  }, 0);
+}
+
+function getEditDiscountInfo() {
+  const baseTotal = getEditItemsGrossTotal();
+  const discountType = document.getElementById('editDiscountType')?.value || 'none';
+  const discountValue = parseFloat(convertToEnglishNumbers(document.getElementById('editDiscountValue')?.value || '0')) || 0;
+  const discountAmount = calculateOrderDiscountAmount(baseTotal, discountType, discountValue);
+  return { baseTotal, discountType, discountValue, discountAmount };
+}
+
+function applyEditDiscountToItems() {
+  const { baseTotal, discountType, discountValue, discountAmount } = getEditDiscountInfo();
+  currentEditingOrder.discountType = discountType;
+  currentEditingOrder.discountValue = discountValue;
+  currentEditingOrder.discountAmount = discountAmount;
+  currentEditingOrder.discountTotal = discountAmount;
+  currentEditingOrder.itemsGrossTotal = parseFloat(baseTotal.toFixed(3));
+
+  currentEditingOrder.items = currentEditingOrder.items.map(item => {
+    const grossTotal = parseFloat(((parseFloat(item.quantity) || 0) * (parseFloat(item.price) || 0)).toFixed(3));
+    const itemDiscount = baseTotal > 0 && discountAmount > 0
+      ? parseFloat((discountAmount * (grossTotal / baseTotal)).toFixed(3))
+      : 0;
+    return {
+      ...item,
+      grossTotal,
+      discountPercent: discountType === 'percent' ? discountValue : 0,
+      discountAmount: itemDiscount,
+      total: parseFloat(Math.max(0, grossTotal - itemDiscount).toFixed(3))
+    };
+  });
+
+  currentEditingOrder.itemsNetTotal = parseFloat(currentEditingOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0).toFixed(3));
 }
 
 // عرض المنتجات للتعديل
@@ -10841,6 +10959,28 @@ function renderEditProducts() {
     </div>
     
     <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+      ${(() => {
+        const discountInfo = getEditDiscountInfo();
+        const deliveryFee = parseFloat(document.getElementById('editDeliveryFee')?.value || '0') || 0;
+        return `
+          <div class="flex justify-between text-base font-bold mb-2">
+            <span>مجموع الأصناف قبل الخصم:</span>
+            <span>${discountInfo.baseTotal.toFixed(3)} د.ك</span>
+          </div>
+          ${discountInfo.discountAmount > 0 ? `
+            <div class="flex justify-between text-base font-bold text-red-600 mb-2">
+              <span>الخصم:</span>
+              <span>-${discountInfo.discountAmount.toFixed(3)} د.ك</span>
+            </div>
+          ` : ''}
+          ${deliveryFee > 0 ? `
+            <div class="flex justify-between text-base font-bold mb-2">
+              <span>رسوم التوصيل:</span>
+              <span>${deliveryFee.toFixed(3)} د.ك</span>
+            </div>
+          ` : ''}
+        `;
+      })()}
       <div class="flex justify-between text-lg font-bold">
         <span>الإجمالي:</span>
         <span class="text-blue-600">${calculateEditTotal().toFixed(3)} د.ك</span>
@@ -10855,10 +10995,12 @@ function renderEditProducts() {
 function updateEditProduct(index, field, value) {
   if (field === 'quantity' || field === 'price') {
     currentEditingOrder.items[index][field] = parseFloat(value) || 0;
-    currentEditingOrder.items[index].total = currentEditingOrder.items[index].quantity * currentEditingOrder.items[index].price;
+    currentEditingOrder.items[index].grossTotal = currentEditingOrder.items[index].quantity * currentEditingOrder.items[index].price;
+    currentEditingOrder.items[index].total = currentEditingOrder.items[index].grossTotal;
   } else {
     currentEditingOrder.items[index][field] = value;
   }
+  applyEditDiscountToItems();
   renderEditProducts();
 }
 
@@ -10904,7 +11046,8 @@ function addEditProduct() {
 
 // حساب الإجمالي
 function calculateEditTotal() {
-  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (item.total || 0), 0);
+  applyEditDiscountToItems();
+  const itemsTotal = currentEditingOrder.items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
   const deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
   return itemsTotal + deliveryFee;
 }
@@ -10918,6 +11061,7 @@ async function saveOrderEdit() {
   currentEditingOrder.address = document.getElementById('editAddress').value.trim();
   currentEditingOrder.deliveryFee = parseFloat(document.getElementById('editDeliveryFee').value) || 0;
   currentEditingOrder.deliveryPrice = currentEditingOrder.deliveryFee;
+  applyEditDiscountToItems();
   currentEditingOrder.total = calculateEditTotal();
 
   // 2. التحقق من صحة البيانات
@@ -11094,6 +11238,23 @@ function addSelectedProduct() {
           <div>
             <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">رسوم التوصيل (د.ك)</label>
             <input type="number" id="editDeliveryFee" step="0.001" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;" onchange="renderEditProducts()">
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom: 30px;">
+        <h3 style="font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #667eea;">الخصم</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px;">
+          <div>
+            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">نوع الخصم</label>
+            <select id="editDiscountType" onchange="renderEditProducts()" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;">
+              <option value="none">بدون خصم</option>
+              <option value="percent">نسبة مئوية</option>
+              <option value="fixed">قيمة ثابتة</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">قيمة الخصم</label>
+            <input type="text" id="editDiscountValue" oninput="this.value = convertToEnglishNumbers(this.value)" onchange="renderEditProducts()" placeholder="مثال: 30" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px;">
           </div>
         </div>
       </div>
