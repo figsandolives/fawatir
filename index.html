@@ -222,7 +222,7 @@
       width: 50mm;
       height: 25mm;
       box-sizing: border-box;
-      padding: 1.2mm 1.4mm 0.9mm;
+      padding: 0.8mm 1.2mm 0.5mm;
       overflow: hidden;
       background: white;
       color: #000;
@@ -234,16 +234,18 @@
       align-items: stretch;
       justify-content: flex-start;
       font-family: Arial, Tahoma, sans-serif;
+      line-height: 1;
     }
 
     .sticker-names {
       text-align: center;
-      line-height: 1.05;
-      margin-bottom: 0.4mm;
+      line-height: 0.98;
+      margin-bottom: 0.25mm;
+      flex: 0 0 auto;
     }
 
     .sticker-name-ar {
-      font-size: 9.2pt;
+      font-size: 7pt;
       font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
@@ -251,7 +253,7 @@
     }
 
     .sticker-name-en {
-      font-size: 4.8pt;
+      font-size: 4pt;
       font-weight: 700;
       direction: ltr;
       white-space: nowrap;
@@ -260,29 +262,32 @@
     }
 
     .sticker-ingredients {
-      font-size: 4.6pt;
+      font-size: 3.7pt;
       font-weight: 700;
-      line-height: 1.15;
-      height: 5.3mm;
+      line-height: 1.05;
+      height: 4mm;
       overflow: hidden;
       text-align: right;
+      flex: 0 0 auto;
     }
 
     .sticker-meta-row,
     .sticker-date-row {
-      font-size: 4.7pt;
+      font-size: 3.8pt;
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1;
       display: flex;
       justify-content: space-between;
-      gap: 1mm;
+      gap: 0.7mm;
       white-space: nowrap;
+      flex: 0 0 auto;
     }
 
     .sticker-barcode-wrap {
-      height: 5.5mm;
-      margin-top: 0.3mm;
+      height: 4.6mm;
+      margin-top: 0.15mm;
       direction: ltr;
+      flex: 0 0 auto;
     }
 
     .sticker-barcode {
@@ -294,10 +299,11 @@
     .sticker-barcode-text {
       direction: ltr;
       text-align: center;
-      font-size: 4pt;
+      font-size: 3.4pt;
       font-weight: 700;
       line-height: 1;
-      margin-top: 0.1mm;
+      margin-top: 0;
+      flex: 0 0 auto;
     }
 
     @media (max-width: 768px) {
@@ -391,10 +397,12 @@
     let adminProductSearchTerm = '';
     let adminSelectedProductIds = [];
     let productInfoSearchTerm = '';
+    let productInfoPage = 1;
     let selectedProductsForInfo = [];
     let productionStickerSearchTerm = '';
     let productionStickerSelectedProductId = '';
     let productionStickerFormOpen = false;
+    let productionStickerCategoryPath = [];
     let priceChangeReportFromDate = '';
     let priceChangeReportToDate = '';
     let priceChangeReportType = 'all';
@@ -6654,8 +6662,49 @@ function renderAccountingContent(section) {
         .sort((a, b) => (a.product.nameAr || '').localeCompare(b.product.nameAr || '', 'ar'));
     }
 
+    function updateProductInfoPage(page) {
+      productInfoPage = Math.max(1, Number(page) || 1);
+      renderAccounting('productInfo');
+    }
+
+    function renderProductInfoPagination(totalRows, totalPages) {
+      if (totalPages <= 1) return '';
+
+      const maxButtons = 7;
+      let startPage = Math.max(1, productInfoPage - Math.floor(maxButtons / 2));
+      let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+      startPage = Math.max(1, endPage - maxButtons + 1);
+
+      const buttons = [];
+      for (let page = startPage; page <= endPage; page++) {
+        buttons.push(`
+          <button
+            onclick="updateProductInfoPage(${page})"
+            class="${page === productInfoPage ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} px-4 py-2 rounded-lg font-bold transition"
+          >${page}</button>
+        `);
+      }
+
+      return `
+        <div class="flex flex-wrap items-center justify-between gap-3 mt-5">
+          <div class="text-sm font-bold text-gray-600">صفحة ${productInfoPage} من ${totalPages} - الإجمالي ${totalRows}</div>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="updateProductInfoPage(${productInfoPage - 1})" class="${productInfoPage <= 1 ? 'opacity-50 pointer-events-none' : ''} bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition">السابق</button>
+            ${buttons.join('')}
+            <button onclick="updateProductInfoPage(${productInfoPage + 1})" class="${productInfoPage >= totalPages ? 'opacity-50 pointer-events-none' : ''} bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition">التالي</button>
+          </div>
+        </div>
+      `;
+    }
+
     function renderProductInfoSection() {
-      const rows = getProductInfoRows();
+      const allRows = getProductInfoRows();
+      const pageSize = 20;
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (productInfoPage > totalPages) productInfoPage = totalPages;
+      if (productInfoPage < 1) productInfoPage = 1;
+      const startIndex = (productInfoPage - 1) * pageSize;
+      const rows = allRows.slice(startIndex, startIndex + pageSize);
 
       return `
         <div>
@@ -6671,10 +6720,10 @@ function renderAccountingContent(section) {
                 id="productInfoSearch"
                 value="${escapeHtml(productInfoSearchTerm || '')}"
                 placeholder="بحث..."
-                oninput="productInfoSearchTerm = this.value; renderAccounting('productInfo')"
+                oninput="productInfoSearchTerm = this.value; productInfoPage = 1; renderAccounting('productInfo')"
                 class="flex-1 min-w-64 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
               >
-              <div class="text-sm font-bold text-gray-600">عدد المنتجات: ${rows.length}</div>
+              <div class="text-sm font-bold text-gray-600">عدد المنتجات: ${allRows.length}</div>
             </div>
 
             <div class="overflow-x-auto">
@@ -6731,6 +6780,8 @@ function renderAccountingContent(section) {
                 </tbody>
               </table>
             </div>
+
+            ${renderProductInfoPagination(allRows.length, totalPages)}
           </div>
         </div>
       `;
@@ -6891,14 +6942,89 @@ function renderAccountingContent(section) {
       return `${year}/${month}/${day}`;
     }
 
+    function normalizeProductionStickerCategoryPath() {
+      const validPath = [];
+      let parentId = '';
+
+      for (const categoryId of productionStickerCategoryPath) {
+        const category = allCategories.find(item => {
+          const itemParentId = item.parentId || '';
+          return item.id === categoryId && itemParentId === parentId;
+        });
+
+        if (!category) break;
+
+        validPath.push(categoryId);
+        parentId = categoryId;
+      }
+
+      productionStickerCategoryPath = validPath;
+      return productionStickerCategoryPath;
+    }
+
+    function getProductionStickerSelectedCategoryId() {
+      const path = normalizeProductionStickerCategoryPath();
+      return path.length > 0 ? path[path.length - 1] : '';
+    }
+
+    function renderProductionStickerCategoryFilters() {
+      const path = normalizeProductionStickerCategoryPath();
+      const levels = [];
+      let parentId = '';
+      let levelIndex = 0;
+
+      while (true) {
+        const categories = getChildCategories(parentId);
+        if (categories.length === 0) break;
+
+        const selectedId = path[levelIndex] || '';
+        levels.push({ categories, selectedId, levelIndex });
+
+        if (!selectedId) break;
+        parentId = selectedId;
+        levelIndex++;
+      }
+
+      if (levels.length === 0) {
+        return '<div class="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">لا توجد تصنيفات مضافة</div>';
+      }
+
+      return levels.map(level => `
+        <select onchange="updateProductionStickerCategoryFilter(${level.levelIndex}, this.value)" class="min-w-56 p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+          <option value="">${level.levelIndex === 0 ? 'اختر التصنيف' : 'اختر التصنيف الفرعي'}</option>
+          ${level.categories.map(category => `
+            <option value="${category.id}" ${level.selectedId === category.id ? 'selected' : ''}>
+              ${escapeHtml(category.nameAr || 'بدون اسم')}${category.nameEn ? ` / ${escapeHtml(category.nameEn)}` : ''}
+            </option>
+          `).join('')}
+        </select>
+      `).join('');
+    }
+
+    function updateProductionStickerCategoryFilter(levelIndex, categoryId) {
+      const nextPath = productionStickerCategoryPath.slice(0, levelIndex);
+      if (categoryId) nextPath[levelIndex] = categoryId;
+      productionStickerCategoryPath = nextPath;
+      productionStickerSelectedProductId = '';
+      renderAccounting('productionStickers');
+    }
+
     function getProductionStickerProductRows() {
       const searchTerm = normalizeText(productionStickerSearchTerm);
+      const selectedCategoryId = getProductionStickerSelectedCategoryId();
+
+      if (!searchTerm && !selectedCategoryId) return [];
+
       return allProducts
         .filter(product => {
-          if (!searchTerm) return true;
-          return normalizeText(`${product.nameAr || ''} ${product.nameEn || ''} ${product.barcode || ''}`).includes(searchTerm);
+          if (searchTerm) {
+            return normalizeText(`${product.nameAr || ''} ${product.nameEn || ''} ${product.barcode || ''}`).includes(searchTerm);
+          }
+          if (selectedCategoryId) return (product.categoryId || '') === selectedCategoryId;
+          return false;
         })
-        .sort((a, b) => (a.nameAr || '').localeCompare(b.nameAr || '', 'ar'));
+        .sort((a, b) => (a.nameAr || '').localeCompare(b.nameAr || '', 'ar'))
+        .slice(0, searchTerm ? 80 : 200);
     }
 
     function getProductionStickerProductStatus(product) {
@@ -6919,6 +7045,8 @@ function renderAccountingContent(section) {
     function renderProductionStickersSection() {
       const selectedProduct = allProducts.find(product => product.id === productionStickerSelectedProductId);
       const selectedStatus = selectedProduct ? getProductionStickerProductStatus(selectedProduct) : null;
+      const selectedCategoryId = getProductionStickerSelectedCategoryId();
+      const hasProductFilter = Boolean(normalizeText(productionStickerSearchTerm) || selectedCategoryId);
       const products = productionStickerFormOpen ? getProductionStickerProductRows() : [];
 
       return `
@@ -6939,6 +7067,14 @@ function renderAccountingContent(section) {
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div class="xl:col-span-2 bg-white p-6 rounded-xl shadow-lg">
                 <h3 class="text-xl font-bold text-gray-800 mb-4">اختيار المنتج</h3>
+
+                <div class="mb-4">
+                  <label class="block mb-2 font-bold text-gray-700">اختيار التصنيف</label>
+                  <div class="flex flex-wrap gap-3">
+                    ${renderProductionStickerCategoryFilters()}
+                  </div>
+                </div>
+
                 <input
                   type="text"
                   id="productionStickerSearch"
@@ -6947,6 +7083,10 @@ function renderAccountingContent(section) {
                   oninput="productionStickerSearchTerm = this.value; renderAccounting('productionStickers')"
                   class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none"
                 >
+
+                <div class="text-sm font-bold text-gray-600 mb-3">
+                  ${hasProductFilter ? `المعروض: ${products.length}${normalizeText(productionStickerSearchTerm) ? ' نتيجة كحد أقصى' : ''}` : 'اختر تصنيفاً أو ابدأ بالبحث لعرض المنتجات'}
+                </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
                   ${products.length > 0 ? products.map(product => {
@@ -6967,7 +7107,7 @@ function renderAccountingContent(section) {
                         </div>
                       </button>
                     `;
-                  }).join('') : '<div class="col-span-full text-center text-gray-500 py-8">لا توجد منتجات مطابقة</div>'}
+                  }).join('') : `<div class="col-span-full text-center text-gray-500 py-8">${hasProductFilter ? 'لا توجد منتجات مطابقة' : 'لن يتم تحميل المنتجات كلها هنا حتى تبقى الصفحة سريعة'}</div>`}
                 </div>
               </div>
 
@@ -7016,6 +7156,7 @@ function renderAccountingContent(section) {
       productionStickerFormOpen = true;
       productionStickerSearchTerm = '';
       productionStickerSelectedProductId = '';
+      productionStickerCategoryPath = [];
       renderAccounting('productionStickers');
     }
 
@@ -7128,16 +7269,19 @@ function renderAccountingContent(section) {
           background: white;
           direction: rtl;
           font-family: Arial, Tahoma, sans-serif;
+          width: 50mm;
+          min-height: 25mm;
         }
         .stickers-print-sheet {
           margin: 0;
           padding: 0;
+          width: 50mm;
         }
         .production-sticker {
           width: 50mm;
           height: 25mm;
           box-sizing: border-box;
-          padding: 1.2mm 1.4mm 0.9mm;
+          padding: 0.8mm 1.2mm 0.5mm;
           overflow: hidden;
           page-break-after: always;
           break-after: page;
@@ -7148,6 +7292,7 @@ function renderAccountingContent(section) {
           flex-direction: column;
           align-items: stretch;
           justify-content: flex-start;
+          line-height: 1;
         }
         .production-sticker:last-child {
           page-break-after: auto;
@@ -7155,18 +7300,19 @@ function renderAccountingContent(section) {
         }
         .sticker-names {
           text-align: center;
-          line-height: 1.05;
-          margin-bottom: 0.4mm;
+          line-height: 0.98;
+          margin-bottom: 0.25mm;
+          flex: 0 0 auto;
         }
         .sticker-name-ar {
-          font-size: 9.2pt;
+          font-size: 7pt;
           font-weight: 800;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
         .sticker-name-en {
-          font-size: 4.8pt;
+          font-size: 4pt;
           font-weight: 700;
           direction: ltr;
           white-space: nowrap;
@@ -7174,27 +7320,30 @@ function renderAccountingContent(section) {
           text-overflow: ellipsis;
         }
         .sticker-ingredients {
-          font-size: 4.6pt;
+          font-size: 3.7pt;
           font-weight: 700;
-          line-height: 1.15;
-          height: 5.3mm;
+          line-height: 1.05;
+          height: 4mm;
           overflow: hidden;
           text-align: right;
+          flex: 0 0 auto;
         }
         .sticker-meta-row,
         .sticker-date-row {
-          font-size: 4.7pt;
+          font-size: 3.8pt;
           font-weight: 800;
-          line-height: 1.1;
+          line-height: 1;
           display: flex;
           justify-content: space-between;
-          gap: 1mm;
+          gap: 0.7mm;
           white-space: nowrap;
+          flex: 0 0 auto;
         }
         .sticker-barcode-wrap {
-          height: 5.5mm;
-          margin-top: 0.3mm;
+          height: 4.6mm;
+          margin-top: 0.15mm;
           direction: ltr;
+          flex: 0 0 auto;
         }
         .sticker-barcode {
           display: block;
@@ -7204,10 +7353,11 @@ function renderAccountingContent(section) {
         .sticker-barcode-text {
           direction: ltr;
           text-align: center;
-          font-size: 4pt;
+          font-size: 3.4pt;
           font-weight: 700;
           line-height: 1;
-          margin-top: 0.1mm;
+          margin-top: 0;
+          flex: 0 0 auto;
         }
         @media screen {
           body {
