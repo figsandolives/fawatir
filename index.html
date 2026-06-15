@@ -7270,12 +7270,16 @@ function renderAccountingContent(section) {
           direction: rtl;
           font-family: Arial, Tahoma, sans-serif;
           width: 50mm;
-          min-height: 25mm;
+          height: 25mm;
+          overflow: hidden;
         }
         .stickers-print-sheet {
           margin: 0;
           padding: 0;
           width: 50mm;
+          height: 25mm;
+          overflow: hidden;
+          position: relative;
         }
         .production-sticker {
           width: 50mm;
@@ -7288,6 +7292,9 @@ function renderAccountingContent(section) {
           background: white;
           color: #000;
           border-radius: 1.5mm;
+          position: absolute;
+          top: 0;
+          left: 0;
           display: flex;
           flex-direction: column;
           align-items: stretch;
@@ -7370,9 +7377,24 @@ function renderAccountingContent(section) {
           }
         }
         @media print {
+          html, body {
+            width: 50mm !important;
+            height: 25mm !important;
+            overflow: hidden !important;
+          }
+          .stickers-print-sheet {
+            width: 50mm !important;
+            height: 25mm !important;
+            overflow: hidden !important;
+            position: relative !important;
+          }
           .production-sticker {
             border: none;
             box-shadow: none;
+            position: absolute !important;
+            top: -6mm !important;
+            left: 0 !important;
+            transform: none !important;
           }
         }
       `;
