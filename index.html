@@ -7009,6 +7009,19 @@ function renderAccountingContent(section) {
       renderAccounting('productionStickers');
     }
 
+    function updateProductionStickerSearch(input) {
+      const cursorPosition = input.selectionStart || 0;
+      productionStickerSearchTerm = input.value;
+      renderAccounting('productionStickers');
+      setTimeout(() => {
+        const searchInput = document.getElementById('productionStickerSearch');
+        if (!searchInput) return;
+        searchInput.focus();
+        const nextPosition = Math.min(cursorPosition, searchInput.value.length);
+        searchInput.setSelectionRange(nextPosition, nextPosition);
+      }, 0);
+    }
+
     function getProductionStickerProductRows() {
       const searchTerm = normalizeText(productionStickerSearchTerm);
       const selectedCategoryId = getProductionStickerSelectedCategoryId();
@@ -7080,7 +7093,7 @@ function renderAccountingContent(section) {
                   id="productionStickerSearch"
                   value="${escapeHtml(productionStickerSearchTerm || '')}"
                   placeholder="بحث باسم المنتج أو الباركود..."
-                  oninput="productionStickerSearchTerm = this.value; renderAccounting('productionStickers')"
+                  oninput="updateProductionStickerSearch(this)"
                   class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none"
                 >
 
