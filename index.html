@@ -7235,6 +7235,129 @@ function renderAccountingContent(section) {
       return `<svg class="sticker-barcode" viewBox="0 0 ${x} 28" preserveAspectRatio="none" aria-label="${escapeSvgText(text)}">${rects}</svg>`;
     }
 
+    function buildCode39BarcodeSvgRects(value, targetX, targetY, targetWidth, targetHeight) {
+      const patterns = {
+        '0': 'nnnwwnwnn', '1': 'wnnwnnnnw', '2': 'nnwwnnnnw', '3': 'wnwwnnnnn',
+        '4': 'nnnwwnnnw', '5': 'wnnwwnnnn', '6': 'nnwwwnnnn', '7': 'nnnwnnwnw',
+        '8': 'wnnwnnwnn', '9': 'nnwwnnwnn', 'A': 'wnnnnwnnw', 'B': 'nnwnnwnnw',
+        'C': 'wnwnnwnnn', 'D': 'nnnnwwnnw', 'E': 'wnnnwwnnn', 'F': 'nnwnwwnnn',
+        'G': 'nnnnnwwnw', 'H': 'wnnnnwwnn', 'I': 'nnwnnwwnn', 'J': 'nnnnwwwnn',
+        'K': 'wnnnnnnww', 'L': 'nnwnnnnww', 'M': 'wnwnnnnwn', 'N': 'nnnnwnnww',
+        'O': 'wnnnwnnwn', 'P': 'nnwnwnnwn', 'Q': 'nnnnnnwww', 'R': 'wnnnnnwwn',
+        'S': 'nnwnnnwwn', 'T': 'nnnnwnwwn', 'U': 'wwnnnnnnw', 'V': 'nwwnnnnnw',
+        'W': 'wwwnnnnnn', 'X': 'nwnnwnnnw', 'Y': 'wwnnwnnnn', 'Z': 'nwwnwnnnn',
+        '-': 'nwnnnnwnw', '.': 'wwnnnnwnn', ' ': 'nwwnnnwnn', '$': 'nwnwnwnnn',
+        '/': 'nwnwnnnwn', '+': 'nwnnnwnwn', '%': 'nnnwnwnwn', '*': 'nwnnwnwnn'
+      };
+      const raw = String(value || '').toUpperCase().replace(/[^0-9A-Z\\-\\. \\$\\/\\+%]/g, '');
+      const text = raw || '0';
+      const encoded = `*${text}*`;
+      const narrow = 1;
+      const wide = 3;
+      const gap = 1;
+      let total = 0;
+
+      for (const char of encoded) {
+        const pattern = patterns[char] || patterns['0'];
+        for (let i = 0; i < pattern.length; i++) total += pattern[i] === 'w' ? wide : narrow;
+        total += gap;
+      }
+
+      const scale = targetWidth / total;
+      let x = targetX;
+      let rects = '';
+      for (const char of encoded) {
+        const pattern = patterns[char] || patterns['0'];
+        for (let i = 0; i < pattern.length; i++) {
+          const width = (pattern[i] === 'w' ? wide : narrow) * scale;
+          if (i % 2 === 0) {
+            rects += `<rect x="${x.toFixed(2)}" y="${targetY}" width="${Math.max(1, width).toFixed(2)}" height="${targetHeight}" fill="#000"/>`;
+          }
+          x += width;
+        }
+        x += gap * scale;
+      }
+      return rects;
+    }
+
+    function buildProductionStickerSvg(payload) {
+      const barcodeRects = buildCode39BarcodeSvgRects(payload.barcode, 14, 162, 372, 24);
+      const ingredients = `المكونات: ${payload.ingredients || '-'}`;
+      const origin = `بلد المنشأ: ${payload.origin || '-'}`;
+      const productionDate = `الإنتاج: ${formatStickerDate(payload.productionDate)}`;
+      const expiryDate = `الانتهاء: ${formatStickerDate(payload.expiryDate)}`;
+
+      return `
+        <svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+          <rect width="400" height="200" fill="#fff"/>
+          <text x="200" y="33" text-anchor="middle" direction="rtl" unicode-bidi="plaintext" font-family="Arial, Tahoma, sans-serif" font-size="27" font-weight="800">${escapeSvgText(payload.nameAr)}</text>
+          <text x="200" y="53" text-anchor="middle" font-family="Arial, Tahoma, sans-serif" font-size="14" font-weight="700">${escapeSvgText(payload.nameEn || '')}</text>
+          <text x="386" y="79" text-anchor="end" direction="rtl" unicode-bidi="plaintext" font-family="Arial, Tahoma, sans-serif" font-size="13" font-weight="700">${escapeSvgText(ingredients)}</text>
+          <text x="386" y="107" text-anchor="end" direction="rtl" unicode-bidi="plaintext" font-family="Arial, Tahoma, sans-serif" font-size="17" font-weight="800">${escapeSvgText(origin)}</text>
+          <text x="386" y="134" text-anchor="end" direction="rtl" unicode-bidi="plaintext" font-family="Arial, Tahoma, sans-serif" font-size="15" font-weight="800">${escapeSvgText(productionDate)}</text>
+          <text x="14" y="154" text-anchor="start" font-family="Arial, Tahoma, sans-serif" font-size="15" font-weight="800">${escapeSvgText(expiryDate)}</text>
+          ${barcodeRects}
+          <text x="200" y="197" text-anchor="middle" font-family="Arial, Tahoma, sans-serif" font-size="10" font-weight="700">${escapeSvgText(payload.barcode || '')}</text>
+        </svg>
+      `;
+    }
+
+    function bytesToBase64(bytes) {
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    function encodeProductionStickerEpl(payload) {
+      return new Promise((resolve, reject) => {
+        const width = 400;
+        const height = 200;
+        const bytesPerRow = Math.ceil(width / 8);
+        const svg = buildProductionStickerSvg(payload);
+        const image = new Image();
+        image.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(image, 0, 0, width, height);
+
+            const imageData = ctx.getImageData(0, 0, width, height).data;
+            const bitmap = new Uint8Array(bytesPerRow * height);
+
+            for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                const index = (y * width + x) * 4;
+                const alpha = imageData[index + 3];
+                const gray = alpha === 0 ? 255 : (imageData[index] * 0.299 + imageData[index + 1] * 0.587 + imageData[index + 2] * 0.114);
+                if (gray < 170) {
+                  bitmap[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+                }
+              }
+            }
+
+            const header = new TextEncoder().encode(`N\nq${width}\nQ${height},24\nD10\nS2\nGW0,0,${bytesPerRow},${height},`);
+            const footer = new TextEncoder().encode(`\nP${Math.max(1, payload.quantity || 1)}\n`);
+            const output = new Uint8Array(header.length + bitmap.length + footer.length);
+            output.set(header, 0);
+            output.set(bitmap, header.length);
+            output.set(footer, header.length + bitmap.length);
+            resolve(bytesToBase64(output));
+          } catch (error) {
+            reject(error);
+          }
+        };
+        image.onerror = () => reject(new Error('تعذر تجهيز صورة الستيكر'));
+        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      });
+    }
+
     function buildProductionStickerHtml(payload) {
       const barcodeSvg = buildCode39BarcodeSvg(payload.barcode);
       return `
@@ -7400,7 +7523,7 @@ function renderAccountingContent(section) {
       `;
     }
 
-    function printProductionStickers() {
+    async function printProductionStickers() {
       const payload = getSelectedStickerPayload();
       if (!payload) {
         showToast('اختر منتجاً أولاً', true);
@@ -7420,36 +7543,23 @@ function renderAccountingContent(section) {
         return;
       }
 
-      const stickersHtml = Array.from({ length: payload.quantity }, () => buildProductionStickerHtml(payload)).join('');
-      const printWindow = window.open('', '_blank', 'width=700,height=500');
-      if (!printWindow) {
-        showToast('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', true);
-        return;
+      try {
+        showToast('جاري تجهيز الستيكر للطابعة...');
+        const dataBase64 = await encodeProductionStickerEpl(payload);
+        const response = await fetch('http://127.0.0.1:17888/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataBase64 })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || 'تعذر إرسال الطباعة');
+        }
+        showToast(`تم إرسال ${payload.quantity} ستيكر للطابعة`);
+      } catch (error) {
+        console.error('Local Zebra print failed:', error);
+        showToast('شغل برنامج الطباعة المحلي أولاً ثم حاول مرة ثانية', true);
       }
-
-      printWindow.document.write(`
-        <!doctype html>
-        <html lang="ar" dir="rtl">
-          <head>
-            <meta charset="UTF-8">
-            <title>ستيكرات الإنتاج</title>
-            <style>${buildProductionStickerPrintStyles()}</style>
-          </head>
-          <body>
-            <div class="stickers-print-sheet">${stickersHtml}</div>
-            <script>
-              window.onload = function() {
-                setTimeout(function() {
-                  window.print();
-                  window.onafterprint = function() { window.close(); };
-                }, 250);
-              };
-            <\/script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      showToast(`جاري طباعة ${payload.quantity} ستيكر`);
     }
 
     function getAdminVisibleProductRowIds() {
