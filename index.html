@@ -370,7 +370,6 @@
     let currentDailySession = null;
     let dailyInvoiceSearchTerm = '';
     let cashierOrdersPage = 1;
-    let accountingOrdersPage = 1;
     let barcodeScanBuffer = '';
     let barcodeScanLastTime = 0;
     let barcodeScanTimer = null;
@@ -4546,11 +4545,7 @@ function renderAccountingContent(section) {
 
     // Orders Section
     function renderOrdersSection() {
-  const ordersPageSize = 10;
   const sortedOrders = allOrders.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  const totalPages = Math.max(1, Math.ceil(sortedOrders.length / ordersPageSize));
-  if (accountingOrdersPage > totalPages) accountingOrdersPage = totalPages;
-  const pagedOrders = sortedOrders.slice((accountingOrdersPage - 1) * ordersPageSize, accountingOrdersPage * ordersPageSize);
   return `
     <div>
       <div class="flex justify-between items-center mb-6">
@@ -4610,7 +4605,7 @@ function renderAccountingContent(section) {
               </tr>
             </thead>
             <tbody id="ordersBody">
-              ${pagedOrders.map(order => `
+              ${sortedOrders.map(order => `
 	                <tr class="order-row" data-order-id="${order.id || ''}" data-search="${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}" data-cashier="${order.cashierCode || ''}" data-branch="${order.branch || ''}" data-timestamp="${order.timestamp || 0}">
                   <td>${order.invoiceNumber || 'N/A'}</td>
                   <td>${order.customerName || 'N/A'}</td>
@@ -4630,20 +4625,10 @@ function renderAccountingContent(section) {
             </tbody>
           </table>
         </div>
-        <div class="flex items-center justify-between mt-4">
-          <button onclick="changeAccountingOrdersPage(-1)" ${accountingOrdersPage <= 1 ? 'disabled' : ''} class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition disabled:opacity-50 disabled:cursor-not-allowed">السابق</button>
-          <div class="font-bold text-gray-700">صفحة ${accountingOrdersPage} من ${totalPages} | المعروض ${pagedOrders.length} من ${sortedOrders.length}</div>
-          <button onclick="changeAccountingOrdersPage(1)" ${accountingOrdersPage >= totalPages ? 'disabled' : ''} class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition disabled:opacity-50 disabled:cursor-not-allowed">التالي</button>
-        </div>
       </div>
     </div>
   `;
 }
-
-    function changeAccountingOrdersPage(direction) {
-      accountingOrdersPage = Math.max(1, accountingOrdersPage + direction);
-      renderAccounting('orders');
-    }
 
     function renderDiscountRequestsSection() {
       const discountedOrders = allOrders
