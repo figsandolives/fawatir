@@ -467,6 +467,7 @@
     let isIssueVoucherModalOpen = false;
     let isTransferVoucherModalOpen = false;
     let isPurchaseVoucherModalOpen = false;
+    let realtimeListenersStarted = false;
 
     // Units
     const units = ['كيلو', 'لتر', 'جرام', 'حبة', 'ربطة', 'كرتون', 'تنكة', 'بطل', 'ماعون'];
@@ -483,12 +484,177 @@
       return Date.now().toString(36) + Math.random().toString(36).substr(2);
     }
 
-    async function loadData() {
+    const APP_DATA_CACHE_KEY = 'figs_old_site_accounting_cache_v2';
+    const APP_CACHE_DB_NAME = 'figs_old_site_cache';
+    const APP_CACHE_STORE = 'cache';
+    let dataCacheSaveTimer = null;
+    let isLoadingFreshData = false;
+
+    function renderProfessionalLoadingScreen(message = 'جاري تحميل البيانات', detail = 'يتم تجهيز الطلبات والمخازن للعمل بسرعة', progress = 8) {
+      const app = document.getElementById('app');
+      const safeProgress = Math.max(5, Math.min(100, Math.round(progress || 0)));
+      app.innerHTML = `
+        <div class="min-h-full w-full bg-gray-950 text-white flex items-center justify-center p-8" dir="rtl">
+          <div class="w-full max-w-xl text-center">
+            <div class="mx-auto mb-6 h-20 w-20 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center shadow-2xl">
+              <div class="h-11 w-11 rounded-full border-4 border-white/20 border-t-amber-300 animate-spin"></div>
+            </div>
+            <h1 class="text-4xl font-extrabold mb-3">جاري تحميل البيانات</h1>
+            <p class="text-gray-300 text-lg mb-8">${escapeHtml(detail || message)}</p>
+            <div class="bg-white/10 rounded-full h-4 overflow-hidden border border-white/10 shadow-inner">
+              <div class="h-full bg-gradient-to-l from-amber-300 via-blue-400 to-emerald-400 transition-all duration-300" style="width: ${safeProgress}%"></div>
+            </div>
+            <div class="mt-4 flex items-center justify-between text-sm text-gray-300 font-bold">
+              <span>${escapeHtml(message)}</span>
+              <span>${safeProgress}%</span>
+            </div>
+            <div class="mt-8 bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-gray-300 leading-7">
+              أول مرة يتم تحميل كل البيانات وحفظها في هذا المتصفح، وبعدها يكون الدخول أسرع ويتم تحديث الجديد فقط أثناء العمل.
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openAppCacheDb() {
+      return new Promise((resolve, reject) => {
+        if (!window.indexedDB) {
+          reject(new Error('IndexedDB غير مدعوم'));
+          return;
+        }
+        const request = indexedDB.open(APP_CACHE_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore(APP_CACHE_STORE);
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('تعذر فتح التخزين المحلي'));
+      });
+    }
+
+    async function readAppDataCache() {
+      try {
+        const database = await openAppCacheDb();
+        return await new Promise((resolve, reject) => {
+          const transaction = database.transaction(APP_CACHE_STORE, 'readonly');
+          const request = transaction.objectStore(APP_CACHE_STORE).get(APP_DATA_CACHE_KEY);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+          transaction.oncomplete = () => database.close();
+        });
+      } catch (error) {
+        console.warn('Unable to read app cache:', error);
+        return null;
+      }
+    }
+
+    async function writeAppDataCache(payload) {
+      try {
+        const database = await openAppCacheDb();
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction(APP_CACHE_STORE, 'readwrite');
+          transaction.objectStore(APP_CACHE_STORE).put(payload, APP_DATA_CACHE_KEY);
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        });
+      } catch (error) {
+        console.warn('Unable to write app cache:', error);
+      }
+    }
+
+    function collectCurrentDataCache() {
+      return {
+        savedAt: Date.now(),
+        allOrders,
+        allCashiers,
+        allProducts,
+        allProductInfos,
+        allProductPriceChanges,
+        allDeliveryPrices,
+        allDailySessions,
+        allRegisteredDevices,
+        allCustomers,
+        allCategories,
+        allInventoryCategories,
+        allInventoryUnits,
+        allIssueCashiers,
+        allInventoryIssues,
+        allInventoryTransfers,
+        allInventorySuppliers,
+        allInventoryPurchases
+      };
+    }
+
+    function hydrateDataFromCache(cache) {
+      if (!cache) return false;
+      allOrders = Array.isArray(cache.allOrders) ? cache.allOrders : [];
+      allCashiers = Array.isArray(cache.allCashiers) ? cache.allCashiers : [];
+      allProducts = Array.isArray(cache.allProducts) ? cache.allProducts : [];
+      allProductInfos = Array.isArray(cache.allProductInfos) ? cache.allProductInfos : [];
+      allProductPriceChanges = Array.isArray(cache.allProductPriceChanges) ? cache.allProductPriceChanges : [];
+      allDeliveryPrices = cache.allDeliveryPrices || {};
+      allDailySessions = Array.isArray(cache.allDailySessions) ? cache.allDailySessions : [];
+      allRegisteredDevices = Array.isArray(cache.allRegisteredDevices) ? cache.allRegisteredDevices : [];
+      allCustomers = Array.isArray(cache.allCustomers) ? cache.allCustomers : [];
+      allCategories = Array.isArray(cache.allCategories) ? cache.allCategories : [];
+      allInventoryCategories = Array.isArray(cache.allInventoryCategories) ? cache.allInventoryCategories : [];
+      allInventoryUnits = Array.isArray(cache.allInventoryUnits) ? cache.allInventoryUnits : [];
+      allIssueCashiers = Array.isArray(cache.allIssueCashiers) ? cache.allIssueCashiers : [];
+      allInventoryIssues = Array.isArray(cache.allInventoryIssues) ? cache.allInventoryIssues : [];
+      allInventoryTransfers = Array.isArray(cache.allInventoryTransfers) ? cache.allInventoryTransfers : [];
+      allInventorySuppliers = Array.isArray(cache.allInventorySuppliers) ? cache.allInventorySuppliers : [];
+      allInventoryPurchases = Array.isArray(cache.allInventoryPurchases) ? cache.allInventoryPurchases : [];
+      return true;
+    }
+
+    function scheduleDataCacheSave() {
+      clearTimeout(dataCacheSaveTimer);
+      dataCacheSaveTimer = setTimeout(() => {
+        writeAppDataCache(collectCurrentDataCache());
+      }, 1200);
+    }
+
+    async function loadData(options = {}) {
+      const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
       const toArray = (snapshot) => snapshot.val()
         ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
         : [];
+      const dataRefs = [
+        ['orders', 'الطلبات'],
+        ['cashiers', 'الكاشيرات'],
+        ['products', 'المنتجات'],
+        ['productInfos', 'معلومات المنتجات'],
+        ['productPriceChanges', 'سجل الأسعار'],
+        ['deliveryPrices', 'أسعار التوصيل'],
+        ['dailySessions', 'يوميات الموظفين'],
+        ['registeredDevices', 'الأجهزة'],
+        ['customers', 'العملاء'],
+        ['categories', 'التصنيفات'],
+        ['inventoryCategories', 'تصنيفات المخزون'],
+        ['inventoryUnits', 'وحدات المخزون'],
+        ['inventoryIssueCashiers', 'موظفي الصرف'],
+        ['inventoryIssues', 'سندات الصرف'],
+        ['inventoryTransfers', 'سندات التحويل'],
+        ['inventorySuppliers', 'الموردين'],
+        ['inventoryPurchases', 'سندات الشراء']
+      ];
 
       try {
+        isLoadingFreshData = true;
+        let loadedCount = 0;
+        const loadSnapshot = ([path, label]) => db.ref(path).once('value').then(snapshot => {
+          loadedCount++;
+          if (onProgress) onProgress({
+            label,
+            loaded: loadedCount,
+            total: dataRefs.length,
+            percent: 8 + (loadedCount / dataRefs.length) * 86
+          });
+          return snapshot;
+        });
+
         const [
           ordersSnapshot,
           cashiersSnapshot,
@@ -507,25 +673,7 @@
           inventoryTransfersSnapshot,
           inventorySuppliersSnapshot,
           inventoryPurchasesSnapshot
-        ] = await Promise.all([
-          db.ref('orders').once('value'),
-          db.ref('cashiers').once('value'),
-          db.ref('products').once('value'),
-          db.ref('productInfos').once('value'),
-          db.ref('productPriceChanges').once('value'),
-          db.ref('deliveryPrices').once('value'),
-          db.ref('dailySessions').once('value'),
-          db.ref('registeredDevices').once('value'),
-          db.ref('customers').once('value'),
-          db.ref('categories').once('value'),
-          db.ref('inventoryCategories').once('value'),
-          db.ref('inventoryUnits').once('value'),
-          db.ref('inventoryIssueCashiers').once('value'),
-          db.ref('inventoryIssues').once('value'),
-          db.ref('inventoryTransfers').once('value'),
-          db.ref('inventorySuppliers').once('value'),
-          db.ref('inventoryPurchases').once('value')
-        ]);
+        ] = await Promise.all(dataRefs.map(loadSnapshot));
 
         allOrders = toArray(ordersSnapshot);
         allCashiers = toArray(cashiersSnapshot);
@@ -549,12 +697,50 @@
         allInventoryTransfers = toArray(inventoryTransfersSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         allInventorySuppliers = toArray(inventorySuppliersSnapshot);
         allInventoryPurchases = toArray(inventoryPurchasesSnapshot).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (onProgress) onProgress({ label: 'حفظ البيانات في المتصفح', loaded: dataRefs.length, total: dataRefs.length, percent: 98 });
+        await writeAppDataCache(collectCurrentDataCache());
         return true;
       } catch (error) {
         console.error('Error loading data:', error);
         showToast('تعذر تحميل البيانات. تحقق من الاتصال ثم حدث الصفحة', true);
         return false;
+      } finally {
+        isLoadingFreshData = false;
       }
+    }
+
+    async function enterAccountingWithCachedData() {
+      renderProfessionalLoadingScreen('جاري فحص البيانات المحفوظة', 'نجهز شاشة المحاسبة والمخازن', 12);
+      const cache = await readAppDataCache();
+      if (hydrateDataFromCache(cache)) {
+        currentScreen = 'accounting';
+        renderAccounting('orders');
+        setupRealtimeListeners();
+        loadData().then(success => {
+          if (success && currentScreen === 'accounting') refreshUI();
+        });
+        return true;
+      }
+
+      const success = await loadData({
+        onProgress: state => renderProfessionalLoadingScreen(
+          `جاري تحميل ${state.label}`,
+          `تم تحميل ${state.loaded} من ${state.total} ملفات بيانات`,
+          state.percent
+        )
+      });
+      if (!success) {
+        currentScreen = 'home';
+        renderHome();
+        return false;
+      }
+
+      renderProfessionalLoadingScreen('تم تحميل البيانات', 'يتم فتح المحاسبة والمخازن الآن', 100);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      currentScreen = 'accounting';
+      renderAccounting('orders');
+      setupRealtimeListeners();
+      return true;
     }
 
     function formatDate(timestamp) {
@@ -1045,9 +1231,39 @@
 
     // 1. نظام المراقبة اللحظية
 function setupRealtimeListeners() {
+  if (realtimeListenersStarted) return;
+  realtimeListenersStarted = true;
+
   // 1. مراقبة الطلبات
-  db.ref('orders').on('value', (snapshot) => {
-    allOrders = snapshot.val() ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data })) : [];
+  const latestOrderTimestamp = allOrders.reduce((max, order) => Math.max(max, order.timestamp || 0), 0);
+  const ordersRef = latestOrderTimestamp
+    ? db.ref('orders').orderByChild('timestamp').startAt(latestOrderTimestamp + 1)
+    : db.ref('orders');
+
+  ordersRef.on('child_added', (snapshot) => {
+    const order = { id: snapshot.key, ...snapshot.val() };
+    const index = allOrders.findIndex(item => item.id === order.id);
+    if (index >= 0) {
+      allOrders[index] = order;
+    } else {
+      allOrders.push(order);
+    }
+    refreshUI();
+  });
+
+  db.ref('orders').on('child_changed', (snapshot) => {
+    const order = { id: snapshot.key, ...snapshot.val() };
+    const index = allOrders.findIndex(item => item.id === order.id);
+    if (index >= 0) {
+      allOrders[index] = order;
+    } else {
+      allOrders.push(order);
+    }
+    refreshUI();
+  });
+
+  db.ref('orders').on('child_removed', (snapshot) => {
+    allOrders = allOrders.filter(order => order.id !== snapshot.key);
     refreshUI();
   });
 
@@ -1174,6 +1390,9 @@ function setupRealtimeListeners() {
 
 // 2. دالة تحديث واجهة المستخدم بدون ريفريش
 function refreshUI() {
+  scheduleDataCacheSave();
+  if (isLoadingFreshData) return;
+
   // لا تقم بتحديث الشاشة إذا كان المستخدم يفتح نافذة (Modal) لكي لا يضيع ما يكتبه
   if (
     document.querySelector('.modal-overlay') ||
@@ -1465,9 +1684,7 @@ function refreshUI() {
       }
       
       document.querySelector('.modal-overlay').remove();
-      await loadData();
-      currentScreen = 'accounting';
-      renderAccounting('orders');
+      await enterAccountingWithCachedData();
     }
 
     function isYarmoukCashierSession() {
@@ -1569,6 +1786,7 @@ function refreshUI() {
         currentDailySession = null;
       }
       renderCashier();
+      setupRealtimeListeners();
 	      if (currentBranch === 'اليرموك' && !hasOpenDailySession()) {
 	        showOpenDailySessionModal();
 	      }
@@ -12391,7 +12609,6 @@ function addSelectedProduct() {
 
     // Initialize App
     document.addEventListener('keydown', handleGlobalBarcodeKeydown);
-    setupRealtimeListeners();
     renderHome();
   </script> 
  

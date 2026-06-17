@@ -185,7 +185,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
+  console.log('');
   console.log(`Zebra local printer bridge is running: http://127.0.0.1:${PORT}`);
+  console.log(`Health check: http://127.0.0.1:${PORT}/health`);
   if (IS_WINDOWS) {
     console.log('Windows: share the Zebra printer, then run: set ZEBRA_PRINTER=ShareName && node zebra-local-printer.js');
   } else {
