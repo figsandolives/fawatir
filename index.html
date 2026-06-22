@@ -362,6 +362,7 @@
     let allProductPriceChanges = [];
     let allProductInfos = [];
     let allDeliveryPrices = {};
+    let selectedDeliveryPriceGroup = 'mainYarmouk';
     let allDailySessions = [];
     let allRegisteredDevices = [];
     let lastDeviceHeartbeatAt = 0;
@@ -1546,6 +1547,7 @@ function refreshUI() {
     async function saveCustomer(customer) {
       try {
         const id = customer.id || generateId();
+        customer.id = id;
         await db.ref(`customers/${id}`).set({ ...customer, id });
         await loadData();
         return true;
@@ -1915,6 +1917,9 @@ function refreshUI() {
         </td>
       ` : ''}
       <td>
+        <button onclick="openCashierQuickEditOrder('${order.id}')" class="bg-amber-500 text-white px-4 py-2 rounded hover:bg-amber-600 transition ml-2">
+          تعديل
+        </button>
         <button onclick="reprintInvoice('${order.id}')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
           🖨️ طباعة
         </button>
@@ -2178,10 +2183,24 @@ function refreshUI() {
       return areas.includes(firstPart) ? firstPart : firstPart;
     }
 
-    function getInferredDeliveryPrices() {
+    function getDeliveryPriceGroupForBranch(branch = currentBranch) {
+      return branch === 'أبو الحصانية' ? 'abuHasaniya' : 'mainYarmouk';
+    }
+
+    function getDeliveryPriceGroupLabel(groupKey) {
+      return groupKey === 'abuHasaniya' ? 'فرع أبو الحصانية' : 'الفرع الرئيسي واليرموك';
+    }
+
+    function isOrderInDeliveryPriceGroup(order, groupKey) {
+      const branch = order?.branch || '';
+      if (groupKey === 'abuHasaniya') return branch === 'أبو الحصانية';
+      return branch !== 'أبو الحصانية';
+    }
+
+    function getInferredDeliveryPrices(groupKey = getDeliveryPriceGroupForBranch()) {
       const inferred = {};
       allOrders
-        .filter(order => order && order.orderType === 'delivery')
+        .filter(order => order && order.orderType === 'delivery' && isOrderInDeliveryPriceGroup(order, groupKey))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .forEach(order => {
           const area = getDeliveryAreaFromAddress(order.address);
@@ -2193,18 +2212,20 @@ function refreshUI() {
       return inferred;
     }
 
-    function getSavedDeliveryPriceForArea(area) {
+    function getSavedDeliveryPriceForArea(area, groupKey = getDeliveryPriceGroupForBranch()) {
       if (!area || !allDeliveryPrices) return '';
-      const row = allDeliveryPrices[area];
+      const groupedRow = allDeliveryPrices[groupKey]?.[area];
+      const legacyRow = allDeliveryPrices[area];
+      const row = groupedRow !== undefined ? groupedRow : legacyRow;
       if (row === undefined || row === null) return '';
       const value = typeof row === 'object' ? row.price : row;
       return value === '' || value === undefined || value === null ? '' : parseFloat(value);
     }
 
-    function getResolvedDeliveryPriceForArea(area) {
-      const saved = getSavedDeliveryPriceForArea(area);
+    function getResolvedDeliveryPriceForArea(area, groupKey = getDeliveryPriceGroupForBranch()) {
+      const saved = getSavedDeliveryPriceForArea(area, groupKey);
       if (saved !== '' && !isNaN(saved)) return saved;
-      const inferred = getInferredDeliveryPrices();
+      const inferred = getInferredDeliveryPrices(groupKey);
       const inferredValue = inferred[area];
       return inferredValue === undefined ? '' : inferredValue;
     }
@@ -2668,16 +2689,23 @@ function showNumericKeypadForInvoice(index, inputField) {
     async function saveEditedDeliveryPriceForSelectedArea() {
       const area = currentOrder.selectedAddress?.area || '';
       if (!area) return;
+      const groupKey = getDeliveryPriceGroupForBranch(currentBranch);
       const price = parseFloat(convertToEnglishNumbers(document.getElementById('deliveryPrice')?.value || '0')) || 0;
       const payload = {
         area,
         price: parseFloat(price.toFixed(3)),
+        groupKey,
+        groupLabel: getDeliveryPriceGroupLabel(groupKey),
+        branch: currentBranch || '',
         updatedAt: Date.now()
       };
-      await db.ref(`deliveryPrices/${area}`).set(payload);
+      await db.ref(`deliveryPrices/${groupKey}/${area}`).set(payload);
       allDeliveryPrices = {
         ...(allDeliveryPrices || {}),
-        [area]: payload
+        [groupKey]: {
+          ...(allDeliveryPrices?.[groupKey] || {}),
+          [area]: payload
+        }
       };
     }
 
@@ -4497,7 +4525,7 @@ function renderAccountingContent(section) {
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div class="bg-white border border-blue-100 rounded-lg p-4 shadow-sm">
               <div class="text-sm text-gray-500 mb-1">عدد السجلات</div>
               <div class="text-2xl font-bold text-blue-700">${rows.length}</div>
@@ -4658,22 +4686,41 @@ function renderAccountingContent(section) {
       return areas.slice();
     }
 
+    function selectDeliveryPriceGroup(groupKey) {
+      selectedDeliveryPriceGroup = groupKey;
+      renderAccounting('deliveryPrices');
+    }
+
     function renderDeliveryPricesSection() {
-      const inferredPrices = getInferredDeliveryPrices();
+      const groupKey = selectedDeliveryPriceGroup || 'mainYarmouk';
+      const inferredPrices = getInferredDeliveryPrices(groupKey);
       const deliveryAreas = getDeliveryPriceAreas();
-      const filledCount = deliveryAreas.filter(area => getResolvedDeliveryPriceForArea(area) !== '').length;
+      const filledCount = deliveryAreas.filter(area => getResolvedDeliveryPriceForArea(area, groupKey) !== '').length;
 
       return `
         <div>
           <div class="flex justify-between items-center mb-6">
             <div>
               <h2 class="text-3xl font-bold text-blue-600">أسعار التوصيل</h2>
-              <p class="text-gray-600 mt-1">يتم استخدام هذه الأسعار تلقائياً في فواتير التوصيل حسب منطقة العميل.</p>
+              <p class="text-gray-600 mt-1">يتم استخدام هذه الأسعار تلقائياً حسب فرع الكاشير ومنطقة العميل.</p>
             </div>
             <button onclick="saveDeliveryPrices()" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ الأسعار</button>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+            <button onclick="selectDeliveryPriceGroup('mainYarmouk')" class="${groupKey === 'mainYarmouk' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'} border border-blue-200 px-6 py-4 rounded-lg font-bold shadow-sm hover:bg-blue-50 hover:text-blue-700 transition">
+              الفرع الرئيسي واليرموك
+            </button>
+            <button onclick="selectDeliveryPriceGroup('abuHasaniya')" class="${groupKey === 'abuHasaniya' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'} border border-blue-200 px-6 py-4 rounded-lg font-bold shadow-sm hover:bg-blue-50 hover:text-blue-700 transition">
+              فرع أبو الحصانية
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white border border-blue-100 rounded-lg p-4 shadow-sm">
+              <div class="text-sm text-gray-500 mb-1">القسم الحالي</div>
+              <div class="text-2xl font-bold text-blue-700">${getDeliveryPriceGroupLabel(groupKey)}</div>
+            </div>
             <div class="bg-white border border-blue-100 rounded-lg p-4 shadow-sm">
               <div class="text-sm text-gray-500 mb-1">عدد المناطق</div>
               <div class="text-2xl font-bold text-blue-700">${deliveryAreas.length}</div>
@@ -4700,7 +4747,7 @@ function renderAccountingContent(section) {
                 </thead>
                 <tbody>
                   ${deliveryAreas.map((area, index) => {
-                    const saved = getSavedDeliveryPriceForArea(area);
+                    const saved = getSavedDeliveryPriceForArea(area, groupKey);
                     const inferred = inferredPrices[area];
                     const value = saved !== '' && !isNaN(saved) ? saved : (inferred ?? '');
                     const source = saved !== '' && !isNaN(saved)
@@ -4717,6 +4764,7 @@ function renderAccountingContent(section) {
                             type="text"
                             id="deliveryPriceArea_${index}"
                             data-area="${escapeHtml(area)}"
+                            data-group="${escapeHtml(groupKey)}"
                             value="${value === '' ? '' : formatNumberWithThreeDecimals(value)}"
                             oninput="this.value = convertToEnglishNumbers(this.value)"
                             class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none"
@@ -4738,7 +4786,8 @@ function renderAccountingContent(section) {
 
     async function saveDeliveryPrices() {
       const inputs = document.querySelectorAll('[id^="deliveryPriceArea_"]');
-      const nextPrices = {};
+      const groupKey = selectedDeliveryPriceGroup || 'mainYarmouk';
+      const nextGroupPrices = {};
 
       inputs.forEach(input => {
         const area = input.getAttribute('data-area') || '';
@@ -4746,17 +4795,22 @@ function renderAccountingContent(section) {
         if (!area || rawValue === '') return;
         const price = parseFloat(rawValue);
         if (!isNaN(price) && price >= 0) {
-          nextPrices[area] = {
+          nextGroupPrices[area] = {
             area,
             price: parseFloat(price.toFixed(3)),
+            groupKey,
+            groupLabel: getDeliveryPriceGroupLabel(groupKey),
             updatedAt: Date.now()
           };
         }
       });
 
       try {
-        await db.ref('deliveryPrices').set(nextPrices);
-        allDeliveryPrices = nextPrices;
+        await db.ref(`deliveryPrices/${groupKey}`).set(nextGroupPrices);
+        allDeliveryPrices = {
+          ...(allDeliveryPrices || {}),
+          [groupKey]: nextGroupPrices
+        };
         showToast('تم حفظ أسعار التوصيل');
         renderAccounting('deliveryPrices');
       } catch (error) {
@@ -6656,15 +6710,41 @@ function renderAccountingContent(section) {
       }
       
       const customer = allCustomers.find(c => c.id === customerId);
+      if (!customer) {
+        showToast('العميل غير موجود', true);
+        return;
+      }
+      const oldPhone = customer.phone || '';
       customer.name = name;
       customer.phone = phone;
       
       const success = await saveCustomer(customer);
       if (success) {
+        await updateOrdersForCustomer(oldPhone, {
+          customerName: name,
+          phoneNumber: phone
+        });
         showToast('تم تعديل العميل بنجاح');
         document.querySelector('.modal-overlay').remove();
         renderAccounting('customers');
       }
+    }
+
+    async function updateOrdersForCustomer(phone, updates) {
+      if (!phone) return 0;
+      const matchingOrders = allOrders.filter(order => (order.phoneNumber || '') === phone);
+      if (!matchingOrders.length) return 0;
+      const payload = {};
+      matchingOrders.forEach(order => {
+        payload[`orders/${order.id}`] = {
+          ...order,
+          ...updates,
+          updatedAt: Date.now()
+        };
+      });
+      await db.ref().update(payload);
+      matchingOrders.forEach(order => Object.assign(order, updates, { updatedAt: Date.now() }));
+      return matchingOrders.length;
     }
 
     function confirmDeleteCustomer(customerId) {
@@ -12662,6 +12742,295 @@ function addSelectedProduct() {
   
   renderEditProducts();
   showToast('✅ تم إضافة المنتج للفاتورة');
+}
+
+function findCustomerForOrder(order) {
+  const phone = order?.phoneNumber || '';
+  return allCustomers.find(customer => (customer.phone || '') === phone) || null;
+}
+
+function formatCustomerAddressText(address) {
+  if (!address) return '';
+  return `${address.area || ''}${address.details ? ` - ${address.details}` : ''}`.trim();
+}
+
+function getOrderAddressIndex(customer, order) {
+  const addresses = Array.isArray(customer?.addresses) ? customer.addresses : [];
+  const orderAddress = (order?.address || '').trim();
+  return addresses.findIndex(address => formatCustomerAddressText(address) === orderAddress);
+}
+
+async function saveDeliveryPriceForBranchArea(area, price, branch = currentBranch) {
+  if (!area) return;
+  const groupKey = getDeliveryPriceGroupForBranch(branch);
+  const payload = {
+    area,
+    price: parseFloat((parseFloat(price) || 0).toFixed(3)),
+    groupKey,
+    groupLabel: getDeliveryPriceGroupLabel(groupKey),
+    branch: branch || '',
+    updatedAt: Date.now()
+  };
+  await db.ref(`deliveryPrices/${groupKey}/${area}`).set(payload);
+  allDeliveryPrices = {
+    ...(allDeliveryPrices || {}),
+    [groupKey]: {
+      ...(allDeliveryPrices?.[groupKey] || {}),
+      [area]: payload
+    }
+  };
+}
+
+function openCashierQuickEditOrder(orderId) {
+  const order = allOrders.find(o => o.id === orderId);
+  if (!order) {
+    showToast('الفاتورة غير موجودة', true);
+    return;
+  }
+
+  const existingModal = document.getElementById('cashierQuickEditModal');
+  if (existingModal) existingModal.remove();
+
+  const deliveryWindow = getDefaultDeliveryWindow();
+  const deliveryDate = order.deliveryDate || deliveryWindow.date;
+  const deliveryTimeFrom = order.deliveryTimeFrom || deliveryWindow.from;
+  const deliveryTimeTo = order.deliveryTimeTo || deliveryWindow.to;
+  const customer = findCustomerForOrder(order);
+  const addresses = Array.isArray(customer?.addresses) ? customer.addresses : [];
+  const currentAddressIndex = getOrderAddressIndex(customer, order);
+  const deliveryFeeValue = parseFloat(order.deliveryPrice ?? order.deliveryFee ?? 0) || 0;
+
+  const modal = document.createElement('div');
+  modal.id = 'cashierQuickEditModal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content p-8 w-full max-w-xl" style="direction: rtl;">
+      <h2 class="text-2xl font-bold text-blue-600 mb-2 text-center">تعديل الفاتورة</h2>
+      <div class="text-center text-gray-600 mb-6">رقم الفاتورة: <strong>#${escapeHtml(order.invoiceNumber || '')}</strong></div>
+
+      <div class="space-y-5">
+        <div>
+          <label class="block mb-2 font-bold text-gray-700">اسم الزبون</label>
+          <input type="text" id="cashierEditCustomerName" value="${escapeHtml(order.customerName || customer?.name || '')}" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+        </div>
+
+        <div>
+          <label class="block mb-2 font-bold text-gray-700">طريقة الدفع</label>
+          <select id="cashierEditPaymentMethod" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            <option value="cash" ${order.paymentMethod === 'cash' ? 'selected' : ''}>كاش</option>
+            <option value="online" ${order.paymentMethod === 'online' ? 'selected' : ''}>أونلاين</option>
+            <option value="knet" ${order.paymentMethod === 'knet' ? 'selected' : ''}>كي-نت</option>
+          </select>
+        </div>
+
+        ${order.orderType === 'delivery' ? `
+          <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h3 class="font-bold text-green-800 mb-3">العنوان ورسوم التوصيل</h3>
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">عنوان الزبون</label>
+              <select id="cashierEditAddressChoice" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+                ${addresses.map((addr, idx) => `
+                  <option value="${idx}" ${idx === currentAddressIndex ? 'selected' : ''}>${escapeHtml(formatCustomerAddressText(addr) || 'عنوان بدون تفاصيل')}</option>
+                `).join('')}
+                <option value="new" ${currentAddressIndex < 0 ? 'selected' : ''}>➕ إضافة عنوان جديد</option>
+              </select>
+            </div>
+
+            <div id="cashierEditNewAddressFields" class="${currentAddressIndex < 0 ? '' : 'hidden'} space-y-3 mb-4">
+              <div>
+                <label class="block mb-1 text-xs font-bold text-gray-600">المنطقة</label>
+                <select id="cashierEditNewAddressArea" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+                  <option value="">اختر المنطقة</option>
+                  ${areas.map(area => `<option value="${area}">${area}</option>`).join('')}
+                  <option value="أخرى">أخرى (كتابة يدوية)</option>
+                </select>
+                <input type="text" id="cashierEditNewAddressAreaManual" placeholder="اكتب المنطقة" class="w-full p-2 border-2 border-gray-300 rounded-lg mt-2 hidden focus:border-green-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-1 text-xs font-bold text-gray-600">تفاصيل العنوان</label>
+                <textarea id="cashierEditNewAddressDetails" rows="2" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none"></textarea>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="block mb-2 font-bold text-gray-700">رسوم التوصيل (د.ك)</label>
+              <input type="text" id="cashierEditDeliveryPrice" value="${formatNumberWithThreeDecimals(deliveryFeeValue)}" oninput="this.value = convertToEnglishNumbers(this.value)" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+              <div class="text-xs text-gray-500 mt-2">أي تعديل هنا سيُحفظ كسعر أساسي لهذه المنطقة حسب فرع الكاشير.</div>
+            </div>
+
+            <h3 class="font-bold text-green-800 mb-3">وقت التوصيل</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block mb-1 text-xs font-bold text-gray-600">تاريخ التوصيل</label>
+                <input type="date" id="cashierEditDeliveryDate" value="${deliveryDate}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-1 text-xs font-bold text-gray-600">من</label>
+                <input type="time" id="cashierEditDeliveryFrom" value="${deliveryTimeFrom}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+              </div>
+              <div>
+                <label class="block mb-1 text-xs font-bold text-gray-600">إلى</label>
+                <input type="time" id="cashierEditDeliveryTo" value="${deliveryTimeTo}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none">
+              </div>
+            </div>
+            <div id="cashierEditDeliveryPreview" class="text-xs text-green-800 mt-3 font-semibold"></div>
+          </div>
+        ` : `
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-gray-600 font-bold">
+            هذه فاتورة استلام، لذلك لا يوجد وقت توصيل للتعديل.
+          </div>
+        `}
+      </div>
+
+      <div class="flex gap-3 mt-7">
+        <button onclick="saveCashierQuickEditOrder('${order.id}')" class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition">حفظ</button>
+        <button onclick="closeCashierQuickEditOrder()" class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">إلغاء</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  document.getElementById('cashierEditAddressChoice')?.addEventListener('change', function() {
+    const isNew = this.value === 'new';
+    document.getElementById('cashierEditNewAddressFields')?.classList.toggle('hidden', !isNew);
+    if (!isNew) {
+      const selectedAddress = addresses[parseInt(this.value)];
+      const price = getResolvedDeliveryPriceForArea(selectedAddress?.area || '', getDeliveryPriceGroupForBranch(order.branch || currentBranch));
+      const priceInput = document.getElementById('cashierEditDeliveryPrice');
+      if (priceInput && price !== '' && !isNaN(price)) priceInput.value = formatNumberWithThreeDecimals(price);
+    }
+  });
+  document.getElementById('cashierEditNewAddressArea')?.addEventListener('change', function() {
+    document.getElementById('cashierEditNewAddressAreaManual')?.classList.toggle('hidden', this.value !== 'أخرى');
+  });
+  ['cashierEditDeliveryDate', 'cashierEditDeliveryFrom', 'cashierEditDeliveryTo'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', updateCashierQuickEditDeliveryPreview);
+  });
+  updateCashierQuickEditDeliveryPreview();
+}
+
+function updateCashierQuickEditDeliveryPreview() {
+  const preview = document.getElementById('cashierEditDeliveryPreview');
+  if (!preview) return;
+  const date = document.getElementById('cashierEditDeliveryDate')?.value || '';
+  const from = document.getElementById('cashierEditDeliveryFrom')?.value || '';
+  const to = document.getElementById('cashierEditDeliveryTo')?.value || '';
+  preview.innerHTML = date && from && to
+    ? `التوصيل ${formatDeliveryDateWithDay(date)}<br>بين الساعة ${formatDeliveryDisplayTime(from)} و ${formatDeliveryDisplayTime(to)}`
+    : '';
+}
+
+async function saveCashierQuickEditOrder(orderId) {
+  const order = allOrders.find(o => o.id === orderId);
+  if (!order) {
+    showToast('الفاتورة غير موجودة', true);
+    return;
+  }
+
+  const customerName = document.getElementById('cashierEditCustomerName')?.value.trim() || '';
+  const paymentMethod = document.getElementById('cashierEditPaymentMethod')?.value || '';
+  if (!customerName) {
+    showToast('أدخل اسم الزبون', true);
+    return;
+  }
+  if (!paymentMethod) {
+    showToast('اختر طريقة الدفع', true);
+    return;
+  }
+
+  let customer = findCustomerForOrder(order);
+  const oldPhone = order.phoneNumber || customer?.phone || '';
+  if (!customer && oldPhone) {
+    customer = {
+      id: generateId(),
+      name: customerName,
+      phone: oldPhone,
+      addresses: []
+    };
+  }
+
+  const updates = {
+    customerName,
+    paymentMethod,
+    updatedAt: Date.now(),
+    updatedByCashier: currentCashier?.name || ''
+  };
+
+  if (order.orderType === 'delivery') {
+    const addresses = Array.isArray(customer?.addresses) ? customer.addresses : [];
+    const addressChoice = document.getElementById('cashierEditAddressChoice')?.value || '';
+    let selectedAddress = null;
+
+    if (addressChoice === 'new') {
+      let area = document.getElementById('cashierEditNewAddressArea')?.value || '';
+      if (area === 'أخرى') {
+        area = document.getElementById('cashierEditNewAddressAreaManual')?.value.trim() || '';
+      }
+      const details = document.getElementById('cashierEditNewAddressDetails')?.value.trim() || '';
+      if (!area) {
+        showToast('اختر منطقة العنوان الجديد', true);
+        return;
+      }
+      selectedAddress = { area, details };
+      if (customer) {
+        customer.addresses = Array.isArray(customer.addresses) ? customer.addresses : [];
+        customer.addresses.push(selectedAddress);
+      }
+    } else if (addressChoice !== '') {
+      selectedAddress = addresses[parseInt(addressChoice)] || null;
+    }
+
+    if (!selectedAddress) {
+      showToast('اختر عنوان التوصيل أو أضف عنوان جديد', true);
+      return;
+    }
+
+    const deliveryPrice = parseFloat(convertToEnglishNumbers(document.getElementById('cashierEditDeliveryPrice')?.value || '0')) || 0;
+    const deliveryDate = document.getElementById('cashierEditDeliveryDate')?.value || '';
+    const deliveryTimeFrom = document.getElementById('cashierEditDeliveryFrom')?.value || '';
+    const deliveryTimeTo = document.getElementById('cashierEditDeliveryTo')?.value || '';
+
+    if (!deliveryDate || !deliveryTimeFrom || !deliveryTimeTo) {
+      showToast('أدخل تاريخ ووقت التوصيل كامل', true);
+      return;
+    }
+
+    updates.deliveryDate = deliveryDate;
+    updates.deliveryTimeFrom = deliveryTimeFrom;
+    updates.deliveryTimeTo = deliveryTimeTo;
+    updates.deliveryTimingType = 'specific';
+    updates.address = formatCustomerAddressText(selectedAddress);
+    updates.deliveryPrice = deliveryPrice;
+    updates.deliveryFee = deliveryPrice;
+    updates.total = (parseFloat(order.total) || 0) - (parseFloat(order.deliveryPrice ?? order.deliveryFee ?? 0) || 0) + deliveryPrice;
+  }
+
+  try {
+    if (customer) {
+      customer.name = customerName;
+      await saveCustomer(customer);
+    }
+    if (oldPhone) {
+      await updateOrdersForCustomer(oldPhone, { customerName });
+    }
+    if (order.orderType === 'delivery' && updates.address) {
+      const area = getDeliveryAreaFromAddress(updates.address);
+      await saveDeliveryPriceForBranchArea(area, updates.deliveryPrice || 0, order.branch || currentBranch);
+    }
+    await db.ref(`orders/${orderId}`).update(updates);
+    const localOrder = allOrders.find(item => item.id === orderId) || order;
+    Object.assign(localOrder, updates);
+    closeCashierQuickEditOrder();
+    renderCashier();
+    showToast('تم تعديل الفاتورة بنجاح');
+  } catch (error) {
+    console.error('Error updating cashier invoice fields:', error);
+    showToast('تعذر حفظ التعديل: ' + (error.message || error), true);
+  }
+}
+
+function closeCashierQuickEditOrder() {
+  document.getElementById('cashierQuickEditModal')?.remove();
 }
 
 
