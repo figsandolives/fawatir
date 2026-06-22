@@ -371,6 +371,14 @@
     let currentDailySession = null;
     let dailyInvoiceSearchTerm = '';
     let cashierOrdersPage = 1;
+    let ordersLoadedMode = 'today';
+    let ordersLoadedRange = null;
+    let orderSearchTerm = '';
+    let orderFilterFrom = '';
+    let orderFilterTo = '';
+    let orderFilterCashier = '';
+    let orderFilterBranch = '';
+    let orderSearchLoadTimer = null;
     let barcodeScanBuffer = '';
     let barcodeScanLastTime = 0;
     let barcodeScanTimer = null;
@@ -617,11 +625,74 @@
       }, 1200);
     }
 
+    function getLocalDayRange(dateValue = new Date()) {
+      const date = dateValue instanceof Date ? dateValue : new Date(`${dateValue}T00:00:00`);
+      const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+      return {
+        start,
+        end: start + 86400000 - 1
+      };
+    }
+
+    function getTodayOrdersRange() {
+      return getLocalDayRange(new Date());
+    }
+
+    function normalizeOrdersSnapshot(snapshot) {
+      return snapshot.val()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+        : [];
+    }
+
+    function setLoadedOrders(orders, mode, range = null) {
+      allOrders = orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      ordersLoadedMode = mode;
+      ordersLoadedRange = range;
+    }
+
+    function mergeLoadedOrders(orders) {
+      const byId = new Map(allOrders.map(order => [order.id, order]));
+      orders.forEach(order => byId.set(order.id, { ...(byId.get(order.id) || {}), ...order }));
+      allOrders = Array.from(byId.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    }
+
+    async function fetchOrdersForRange(start, end, { replace = true, mode = 'range' } = {}) {
+      const snapshot = await db.ref('orders').orderByChild('timestamp').startAt(start).endAt(end).once('value');
+      const orders = normalizeOrdersSnapshot(snapshot);
+      if (replace) {
+        setLoadedOrders(orders, mode, { start, end });
+      } else {
+        mergeLoadedOrders(orders);
+      }
+      return orders;
+    }
+
+    async function fetchAllOrdersForSearch() {
+      const snapshot = await db.ref('orders').once('value');
+      const orders = normalizeOrdersSnapshot(snapshot);
+      setLoadedOrders(orders, 'all', null);
+      return orders;
+    }
+
+    function pruneCachedOrdersToToday() {
+      const today = getTodayOrdersRange();
+      setLoadedOrders(
+        allOrders.filter(order => {
+          const timestamp = parseInt(order.timestamp, 10) || 0;
+          return timestamp >= today.start && timestamp <= today.end;
+        }),
+        'today',
+        today
+      );
+    }
+
     async function loadData(options = {}) {
       const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
       const toArray = (snapshot) => snapshot.val()
         ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
         : [];
+      const ordersMode = options.ordersMode || 'today';
+      const todayRange = getTodayOrdersRange();
       const dataRefs = [
         ['orders', 'الطلبات'],
         ['cashiers', 'الكاشيرات'],
@@ -645,7 +716,11 @@
       try {
         isLoadingFreshData = true;
         let loadedCount = 0;
-        const loadSnapshot = ([path, label]) => db.ref(path).once('value').then(snapshot => {
+        const loadSnapshot = ([path, label]) => {
+          const ref = path === 'orders' && ordersMode === 'today'
+            ? db.ref('orders').orderByChild('timestamp').startAt(todayRange.start).endAt(todayRange.end)
+            : db.ref(path);
+          return ref.once('value').then(snapshot => {
           loadedCount++;
           if (onProgress) onProgress({
             label,
@@ -654,7 +729,8 @@
             percent: 8 + (loadedCount / dataRefs.length) * 86
           });
           return snapshot;
-        });
+          });
+        };
 
         const [
           ordersSnapshot,
@@ -676,7 +752,11 @@
           inventoryPurchasesSnapshot
         ] = await Promise.all(dataRefs.map(loadSnapshot));
 
-        allOrders = toArray(ordersSnapshot);
+        setLoadedOrders(
+          normalizeOrdersSnapshot(ordersSnapshot),
+          ordersMode === 'today' ? 'today' : 'all',
+          ordersMode === 'today' ? todayRange : null
+        );
         allCashiers = toArray(cashiersSnapshot);
         allProducts = toArray(productsSnapshot);
         allProductInfos = toArray(productInfosSnapshot);
@@ -714,16 +794,18 @@
       renderProfessionalLoadingScreen('جاري فحص البيانات المحفوظة', 'نجهز شاشة المحاسبة والمخازن', 12);
       const cache = await readAppDataCache();
       if (hydrateDataFromCache(cache)) {
+        pruneCachedOrdersToToday();
         currentScreen = 'accounting';
         renderAccounting('orders');
         setupRealtimeListeners();
-        loadData().then(success => {
+        loadData({ ordersMode: 'today' }).then(success => {
           if (success && currentScreen === 'accounting') refreshUI();
         });
         return true;
       }
 
       const success = await loadData({
+        ordersMode: 'today',
         onProgress: state => renderProfessionalLoadingScreen(
           `جاري تحميل ${state.label}`,
           `تم تحميل ${state.loaded} من ${state.total} ملفات بيانات`,
@@ -1237,9 +1319,8 @@ function setupRealtimeListeners() {
 
   // 1. مراقبة الطلبات
   const latestOrderTimestamp = allOrders.reduce((max, order) => Math.max(max, order.timestamp || 0), 0);
-  const ordersRef = latestOrderTimestamp
-    ? db.ref('orders').orderByChild('timestamp').startAt(latestOrderTimestamp + 1)
-    : db.ref('orders');
+  const todayRange = getTodayOrdersRange();
+  const ordersRef = db.ref('orders').orderByChild('timestamp').startAt(Math.max(latestOrderTimestamp + 1, todayRange.start));
 
   ordersRef.on('child_added', (snapshot) => {
     const order = { id: snapshot.key, ...snapshot.val() };
@@ -4823,7 +4904,27 @@ function renderAccountingContent(section) {
     let orderRowsRenderToken = 0;
 
     function getSortedAccountingOrders() {
-      return allOrders.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const search = normalizeText(orderSearchTerm);
+      return allOrders
+        .filter(order => {
+          const timestamp = parseInt(order.timestamp, 10) || 0;
+          if (orderFilterFrom) {
+            const from = new Date(`${orderFilterFrom}T00:00:00`).getTime();
+            if (timestamp < from) return false;
+          }
+          if (orderFilterTo) {
+            const to = new Date(`${orderFilterTo}T23:59:59`).getTime();
+            if (timestamp > to) return false;
+          }
+          if (orderFilterCashier && (order.cashierCode || '') !== orderFilterCashier) return false;
+          if (orderFilterBranch && (order.branch || '') !== orderFilterBranch) return false;
+          if (search) {
+            const searchData = normalizeText(`${order.invoiceNumber || ''} ${order.customerName || ''} ${order.phoneNumber || ''}`);
+            if (!searchData.includes(search)) return false;
+          }
+          return true;
+        })
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     }
 
     function buildOrderTableRow(order) {
@@ -4884,7 +4985,10 @@ function renderAccountingContent(section) {
     }
 
     function renderOrdersSection() {
-  const sortedOrdersCount = allOrders.length;
+  const sortedOrdersCount = getSortedAccountingOrders().length;
+  const loadedLabel = ordersLoadedMode === 'all'
+    ? 'تم تحميل كل الطلبات بسبب البحث'
+    : (ordersLoadedMode === 'today' ? 'المحمّل حالياً: طلبات اليوم فقط' : 'المحمّل حالياً: نطاق التاريخ المحدد');
   return `
     <div>
       <div class="flex justify-between items-center mb-6">
@@ -4899,35 +5003,39 @@ function renderAccountingContent(section) {
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label class="block mb-2 font-bold text-gray-700">من تاريخ</label>
-            <input type="date" id="filterFrom" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            <input type="date" id="filterFrom" value="${orderFilterFrom}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
           </div>
           <div>
             <label class="block mb-2 font-bold text-gray-700">إلى تاريخ</label>
-            <input type="date" id="filterTo" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
+            <input type="date" id="filterTo" value="${orderFilterTo}" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
           </div>
           <div>
             <label class="block mb-2 font-bold text-gray-700">الكاشير</label>
             <select id="filterCashier" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
               <option value="">الكل</option>
-              ${allCashiers.map(c => `<option value="${c.code}">${c.name}</option>`).join('')}
+              ${allCashiers.map(c => `<option value="${c.code}" ${orderFilterCashier === c.code ? 'selected' : ''}>${c.name}</option>`).join('')}
             </select>
           </div>
           <div>
             <label class="block mb-2 font-bold text-gray-700">الفرع</label>
             <select id="filterBranch" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none">
               <option value="">الكل</option>
-              <option value="الفرع الرئيسي">الفرع الرئيسي</option>
-              <option value="المخزن الرئيسي">المخزن الرئيسي</option>
-              <option value="أبو الحصانية">أبو الحصانية</option>
-              <option value="اليرموك">اليرموك</option>
+              <option value="الفرع الرئيسي" ${orderFilterBranch === 'الفرع الرئيسي' ? 'selected' : ''}>الفرع الرئيسي</option>
+              <option value="المخزن الرئيسي" ${orderFilterBranch === 'المخزن الرئيسي' ? 'selected' : ''}>المخزن الرئيسي</option>
+              <option value="أبو الحصانية" ${orderFilterBranch === 'أبو الحصانية' ? 'selected' : ''}>أبو الحصانية</option>
+              <option value="اليرموك" ${orderFilterBranch === 'اليرموك' ? 'selected' : ''}>اليرموك</option>
             </select>
           </div>
         </div>
-        <button onclick="applyFilters()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+        <div class="flex flex-wrap items-center gap-3 mt-4">
+          <button onclick="applyFilters()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">بحث</button>
+          <button onclick="resetOrdersToToday()" class="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-bold hover:bg-gray-300 transition">طلبات اليوم</button>
+          <span class="text-sm font-bold text-gray-600">${loadedLabel}</span>
+        </div>
       </div>
       
       <div class="bg-white p-6 rounded-xl shadow-lg">
-        <input type="text" id="orderSearch" placeholder="بحث..." oninput="filterOrders()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
+        <input type="text" id="orderSearch" value="${escapeHtml(orderSearchTerm)}" placeholder="بحث..." oninput="filterOrders()" class="w-full p-3 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-600 focus:outline-none">
         <div class="overflow-x-auto">
           <table>
             <thead>
@@ -5024,54 +5132,93 @@ function renderAccountingContent(section) {
       `;
     }
 
+    async function ensureOrdersForDateFilters(fromDate, toDate) {
+      if (!fromDate && !toDate) return;
+      const fromRange = fromDate ? getLocalDayRange(fromDate) : null;
+      const toRange = toDate ? getLocalDayRange(toDate) : null;
+      const start = fromRange ? fromRange.start : 0;
+      const end = toRange ? toRange.end : Date.now();
+      if (ordersLoadedMode === 'range' && ordersLoadedRange && ordersLoadedRange.start <= start && ordersLoadedRange.end >= end) return;
+      if (ordersLoadedMode === 'all') return;
+      showToast('جاري تحميل طلبات التاريخ المحدد...');
+      await fetchOrdersForRange(start, end, { replace: true, mode: 'range' });
+    }
+
+    async function resetOrdersToToday() {
+      orderSearchTerm = '';
+      orderFilterFrom = '';
+      orderFilterTo = '';
+      orderFilterCashier = '';
+      orderFilterBranch = '';
+      const today = getTodayOrdersRange();
+      showToast('جاري تحميل طلبات اليوم...');
+      await fetchOrdersForRange(today.start, today.end, { replace: true, mode: 'today' });
+      renderAccounting('orders');
+      setTimeout(renderAccountingOrdersRowsChunked, 0);
+    }
+
+    function applyOrdersFiltersToRenderedRows() {
+      const rows = document.querySelectorAll('.order-row');
+      rows.forEach(row => {
+        const searchData = (row.getAttribute('data-search') || '').toLowerCase();
+        const timestamp = parseInt(row.getAttribute('data-timestamp'), 10) || 0;
+        const rowCashier = row.getAttribute('data-cashier') || '';
+        const rowBranch = row.getAttribute('data-branch') || '';
+        let show = true;
+
+        if (orderSearchTerm && !searchData.includes(orderSearchTerm.toLowerCase())) show = false;
+        if (orderFilterFrom) {
+          const from = new Date(`${orderFilterFrom}T00:00:00`).getTime();
+          if (timestamp < from) show = false;
+        }
+        if (orderFilterTo) {
+          const to = new Date(`${orderFilterTo}T23:59:59`).getTime();
+          if (timestamp > to) show = false;
+        }
+        if (orderFilterCashier && rowCashier !== orderFilterCashier) show = false;
+        if (orderFilterBranch && rowBranch !== orderFilterBranch) show = false;
+        row.style.display = show ? '' : 'none';
+      });
+    }
+
     function filterOrders() {
       if (document.getElementById('ordersRenderProgress')?.textContent.includes('جاري تجهيز')) {
         showToast('انتظر حتى يكتمل تجهيز الطلبات', true);
         return;
       }
-      const searchTerm = document.getElementById('orderSearch').value.toLowerCase();
-      const rows = document.querySelectorAll('.order-row');
-      
-      rows.forEach(row => {
-        const searchData = row.getAttribute('data-search').toLowerCase();
-        row.style.display = searchData.includes(searchTerm) ? '' : 'none';
-      });
+      orderSearchTerm = document.getElementById('orderSearch')?.value || '';
+      clearTimeout(orderSearchLoadTimer);
+      orderSearchLoadTimer = setTimeout(async () => {
+        if (orderSearchTerm.trim() && ordersLoadedMode !== 'all') {
+          showToast('جاري تحميل الطلبات للبحث...');
+          await fetchAllOrdersForSearch();
+          renderAccounting('orders');
+          setTimeout(renderAccountingOrdersRowsChunked, 0);
+          return;
+        }
+        applyOrdersFiltersToRenderedRows();
+      }, 450);
     }
 
-	    function applyFilters() {
+	    async function applyFilters() {
       if (document.getElementById('ordersRenderProgress')?.textContent.includes('جاري تجهيز')) {
         showToast('انتظر حتى يكتمل تجهيز الطلبات', true);
         return;
       }
-	      const fromDate = document.getElementById('filterFrom').value;
-	      const toDate = document.getElementById('filterTo').value;
-	      const cashier = document.getElementById('filterCashier').value;
-      const branch = document.getElementById('filterBranch').value;
-      
-      const rows = document.querySelectorAll('.order-row');
-      
-      rows.forEach(row => {
-        const timestamp = parseInt(row.getAttribute('data-timestamp'));
-        const rowCashier = row.getAttribute('data-cashier');
-        const rowBranch = row.getAttribute('data-branch');
-        
-        let show = true;
-        
-        if (fromDate) {
-          const from = new Date(fromDate).getTime();
-          if (timestamp < from) show = false;
-        }
-        
-        if (toDate) {
-          const to = new Date(toDate).getTime() + 86400000;
-          if (timestamp > to) show = false;
-        }
-        
-        if (cashier && rowCashier !== cashier) show = false;
-        if (branch && rowBranch !== branch) show = false;
-        
-	        row.style.display = show ? '' : 'none';
-	      });
+	      orderFilterFrom = document.getElementById('filterFrom')?.value || '';
+	      orderFilterTo = document.getElementById('filterTo')?.value || '';
+	      orderFilterCashier = document.getElementById('filterCashier')?.value || '';
+      orderFilterBranch = document.getElementById('filterBranch')?.value || '';
+      orderSearchTerm = document.getElementById('orderSearch')?.value || orderSearchTerm || '';
+
+      if (orderFilterFrom && orderFilterTo && new Date(orderFilterFrom).getTime() > new Date(orderFilterTo).getTime()) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', true);
+        return;
+      }
+
+      await ensureOrdersForDateFilters(orderFilterFrom, orderFilterTo);
+      renderAccounting('orders');
+      setTimeout(renderAccountingOrdersRowsChunked, 0);
 	    }
 
 	    function getOrderFromOrderRow(row) {
@@ -6013,7 +6160,7 @@ function renderAccountingContent(section) {
       );
     }
 
-    function runSalesReport() {
+    async function runSalesReport() {
       const selectedProducts = getSalesReportProductsForRun();
 
       if (salesReportMode === 'single' && selectedProducts.length === 0) {
@@ -6044,6 +6191,13 @@ function renderAccountingContent(section) {
       if (fromTimestamp && toTimestamp && fromTimestamp > toTimestamp) {
         showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', true);
         return;
+      }
+
+      if (salesReportFromDate || salesReportToDate) {
+        await ensureOrdersForDateFilters(salesReportFromDate, salesReportToDate);
+      } else if (ordersLoadedMode !== 'all') {
+        showToast('جاري تحميل الطلبات للتقرير...');
+        await fetchAllOrdersForSearch();
       }
 
       const isMultiMode = salesReportMode === 'multi';
