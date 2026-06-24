@@ -1850,7 +1850,7 @@ function refreshUI() {
       const code = document.getElementById('cashierCode').value;
       const deviceBranch = localStorage.getItem('deviceBranch');
       
-      await loadData();
+      await loadData({ ordersMode: 'all' });
       
       const cashier = allCashiers.find(c => c.code === code);
       
@@ -2364,10 +2364,30 @@ function refreshUI() {
       return allProducts.find(product => normalizeBarcodeValue(product.barcode) === value) || null;
     }
 
+    function clearProductSearchBoxAfterScan(value) {
+      const searchBox = document.getElementById('productSearchBox');
+      const scanned = normalizeBarcodeValue(value);
+      if (searchBox) {
+        const typed = normalizeBarcodeValue(searchBox.value);
+        if (!scanned || typed.includes(scanned) || scanned.includes(typed) || /^\d{4,}$/.test(typed)) {
+          searchBox.value = '';
+          searchProductsInInvoice();
+        }
+      }
+      const dailySearchBox = document.getElementById('dailyInvoiceSearchInput');
+      if (dailySearchBox) {
+        const typed = normalizeBarcodeValue(dailySearchBox.value);
+        if (!scanned || typed.includes(scanned) || scanned.includes(typed) || /^\d{4,}$/.test(typed)) {
+          dailySearchBox.value = '';
+        }
+      }
+    }
+
     function handleBarcodeScan(value) {
       if (currentScreen !== 'cashier' || !currentCashier) return;
       const barcode = normalizeBarcodeValue(value);
       if (!barcode || barcode.length < 4) return;
+      clearProductSearchBoxAfterScan(barcode);
 
       if (currentBranch === 'اليرموك' && !hasOpenDailySession()) {
         showToast('يجب فتح اليومية أولاً', true);
@@ -2406,6 +2426,7 @@ function refreshUI() {
       }
 
       addProductToInvoice(product.id);
+      clearProductSearchBoxAfterScan(barcode);
       showToast(`تمت إضافة المنتج: ${product.nameAr || product.nameEn || ''}`);
       document.getElementById('productSearchBox')?.focus();
     }
@@ -2414,10 +2435,12 @@ function refreshUI() {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target;
       const isTypingField = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
-      if (isTypingField && target.id !== 'productSearchBox') return;
+      const isBarcodeFriendlyInput = target?.id === 'productSearchBox' || target?.id === 'dailyInvoiceSearchInput';
+      if (isTypingField && !isBarcodeFriendlyInput) return;
 
       if (event.key === 'Enter') {
         if (barcodeScanBuffer) {
+          event.preventDefault();
           const value = barcodeScanBuffer;
           barcodeScanBuffer = '';
           handleBarcodeScan(value);
@@ -2430,7 +2453,11 @@ function refreshUI() {
       if (now - barcodeScanLastTime > 90) {
         barcodeScanBuffer = '';
       }
-      barcodeScanBuffer += event.key;
+      const normalizedKey = normalizeBarcodeValue(event.key);
+      if (isBarcodeFriendlyInput && barcodeScanBuffer) {
+        event.preventDefault();
+      }
+      barcodeScanBuffer += normalizedKey || event.key;
       barcodeScanLastTime = now;
       clearTimeout(barcodeScanTimer);
       barcodeScanTimer = setTimeout(() => {
@@ -2438,6 +2465,7 @@ function refreshUI() {
           const value = barcodeScanBuffer;
           barcodeScanBuffer = '';
           handleBarcodeScan(value);
+          clearProductSearchBoxAfterScan(value);
         } else {
           barcodeScanBuffer = '';
         }
@@ -13191,7 +13219,7 @@ function closeCashierQuickEditOrder() {
 
 
     // Initialize App
-    document.addEventListener('keydown', handleGlobalBarcodeKeydown);
+    document.addEventListener('keydown', handleGlobalBarcodeKeydown, true);
     renderHome();
   </script> 
  
